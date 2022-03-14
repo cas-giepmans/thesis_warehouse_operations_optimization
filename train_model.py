@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
 # from policyNet_PG_pytorch import PolicyValueNet as trainNet
 from MathTreeGame import MathTreeGame as mathTreeGame
-# from PlantGame_AVSRS import PlantGame_AVSRS as plantGame
-from newPlantGame import PlantGame_AVSRS as plantGame # Sim replacement
+from PlantGame_AVSRS import PlantGame_AVSRS as plantGame
 import numpy as np
 from datetime import datetime
 
@@ -37,8 +36,8 @@ class TrainGameModel():
             all_reward = []
 
             while True:
-                # print("state value in List:", my_state)
-                action = self.My_Train_NET.select_action(np.array(my_state), available_pos) # Here we go from the list state representation to a numpy array representation.
+                print("state value in List:", my_state)
+                action = self.My_Train_NET.select_action(np.array(my_state), available_pos)
                 # if action in all_action:
                 #     print("same action")
                 #     print(action)
@@ -64,7 +63,7 @@ class TrainGameModel():
             # elif i_episode == int(0.8 * train_episodes):
             #     self.lr = self.lr * self.lr_decay
             # print(self.lr)
-            self.epsiode_count = self.epsiode_count + 1 # self.epsiode_count += 1
+            self.epsiode_count = self.epsiode_count + 1
             if self.epsiode_count == self.change_count:
                 self.lr = self.lr*self.lr_decay
                 self.change_count = 500
@@ -75,10 +74,9 @@ class TrainGameModel():
             self.My_Game_Model.dolastAction()
             all_episode_reward.append(episode_reward)
             # self.saveBestModel()
-            print(f"Finished episode {i_episode}/4000")
-            # print("i_episode:", i_episode, "episode_reward", episode_reward, "max_reward:" ,max(all_episode_reward),
-            #       "all_action:", all_action, "thisTime", self.My_Game_Model.episodeTime[len(self.My_Game_Model.episodeTime)-1],
-            #       "minTime:", min(self.My_Game_Model.episodeTime), "maxTime:", max(self.My_Game_Model.episodeTime), "lr", self.lr)
+            print("i_episode:", i_episode, "episode_reward", episode_reward, "max_reward:" ,max(all_episode_reward),
+                  "all_action:", all_action, "thisTime", self.My_Game_Model.episodeTime[len(self.My_Game_Model.episodeTime)-1],
+                  "minTime:", min(self.My_Game_Model.episodeTime), "maxTime:", max(self.My_Game_Model.episodeTime), "lr", self.lr)
 
             # print("i_episode:", i_episode, "episode_reward", episode_reward, "max_reward:", max(all_episode_reward), "all_action:", all_action)
 
@@ -121,7 +119,6 @@ class TrainGameModel():
 
         # plt.hist(self.My_Train_NET.getLossValue())
         plt.figure()
-        plt.title("Training loss (limited at 50 and -50)")
         loss_list = self.My_Train_NET.getLossValue()
         for i in range(len(loss_list)):
             if loss_list[i] >= 50:
@@ -143,7 +140,7 @@ def main():
     # my_game_model = mathTreeGame(xDim, yDim)
     my_game_model = plantGame(x_dim, y_dim)
 
-    train_episodes = 4000  # 不建议该值超过5000
+    train_episodes = 1  # 不建议该值超过5000
     train_plant_model = TrainGameModel(my_game_model)
     train_plant_model.run_training(train_episodes)
     print("training end")

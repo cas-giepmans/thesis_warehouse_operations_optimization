@@ -224,8 +224,8 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         # the policy value net module
 
         # 创建神经网络
-        # self.policy_value_net = Net(xDim, yDim, stateNume, posNum, actionNum)
-        self.policy_value_net = DeeperValAct_net(xDim, yDim, stateNume, posNum, actionNum)
+        self.policy_value_net = Net(xDim, yDim, stateNume, posNum, actionNum)
+        # self.policy_value_net = DeeperValAct_net(xDim, yDim, stateNume, posNum, actionNum)
         # self.policy_value_net = DeeperNet(xDim, yDim, stateNume, posNum, actionNum)
         """初始化神经网络的参数"""
         # for m in self.policy_value_net.modules():
@@ -260,26 +260,24 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
 
     def select_action(self, state, availablePos):
         state = torch.from_numpy(state).float().unsqueeze(0)
-        # print("state value in Array(input to the neural network):", state)
+        print("state value in Array(input to the neural network):", state)
         probs, state_value = self.policy_value_net(state)
-        probs_aaaaa = copy.deepcopy(probs.data[0]) # TODO: optimize deepcopy method
+        probs_aaaaa = copy.deepcopy(probs.data[0])
         # print("probs_before:", probs)
         max_prob = 0
         max_prob_index = 0
         for temp_i in range(len(availablePos)):
-            # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
+            # if probs.data[0][temp_i] <= 1e-8:  # 防止出现nan，不确定
             #     probs.data[0][temp_i] = 1e-8
-            if probs.data[0][temp_i] == 0 or np.isnan(probs.data[0][temp_i]):
-                probs.data[0][temp_i] = 1.0 / 96.0 # should sum to 1 and avoid nan error.
             if availablePos[temp_i] == 0:
                 probs.data[0][temp_i] = 0
 
-            if probs.data[0][temp_i] >= max_prob: # Use numpy.argmax() here
+            if probs.data[0][temp_i] >= max_prob:
                 max_prob = probs.data[0][temp_i]
                 max_prob_index = temp_i
 
-        # if max_prob <= 1e-8:  # Prevent the appearance of nan, indeterminate
-        #     probs.data[0][max_prob_index] = 1e-8 
+        if max_prob <= 1e-8:  # 防止出现nan，不确定
+            probs.data[0][max_prob_index] = 1e-8
 
         # create a categorical distribution over the list of probabilities of actions
         m = Categorical(probs)
@@ -287,13 +285,6 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         # m = Categorical(probs.clip_by_value(probs, 1e-8, 1.0))
 
         # and sample an action using the distribution
-        '''
-          What happens here does not make sense given the answer to question 3
-          I sent Lei. He said the action with the maximum probability is chosen
-          although here I get the idea that an action is sampled randomly from 
-          the categorical distribution. This doesn't make sense, it's 
-          contradictory.
-        '''
 
         try:
             action = m.sample()
