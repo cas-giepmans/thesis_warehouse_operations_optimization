@@ -1,5 +1,6 @@
 import socket
 from TrainingGame import TrainingGame
+from response_time import Warehouse as wh
 import copy
 import numpy as np
 
@@ -43,6 +44,7 @@ class PlantGame_AVSRS(TrainingGame):
         self.local_episode_counter = 0
 
         print("start plant simulation") #create object here
+        
         # self.server = socket.socket()
         # self.server.bind(('127.0.0.5', 8520))
         # self.server.listen(5)
@@ -97,19 +99,26 @@ class PlantGame_AVSRS(TrainingGame):
         
         # Element-wise multiplication of randoms and available locations.
         # This gives 0 for every occupied location, just like the simulation.
-        listOfRandomsWithoutFilledSpaces = [listOfRandoms[i] * self.AvailablePos[i] for i in range(len(listOfRandoms))]
-        
-        # Check for last action, increase local episode counter if satisfied
-        # this was wrong, episode counting was already being done. This actually just functions as a finish indicator.
+        listOfRandomsWithoutFilledSpaces = [
+            listOfRandoms[i] *
+            self.AvailablePos[i] for i in range(len(listOfRandoms))]
+
+        """ Check for last action, increase local episode counter if satisfied
+            this was wrong, episode counting was already being done. This
+            actually just functions as a finish indicator."""
+
         if len(self.allAction) == 96:
             self.local_episode_counter = 1
-        
-        # Create the 'tail counter', this keeps track of nr of episodes and this episode's run time.
+
+        """ Create the 'tail counter', this keeps track of nr of episodes and
+            this episode's run time."""
+
         tail_counter = f'_{self.local_episode_counter}+{round(self.this_episodes_time, 2)}'
-        
+
         # Parse randoms to one string, separated by '_' and add tail counter
-        stringOfRandoms = '_' + '_'.join([str(x) for x in listOfRandomsWithoutFilledSpaces]) + tail_counter
-        
+        stringOfRandoms = '_' + '_'.join([
+            str(x) for x in listOfRandomsWithoutFilledSpaces]) + tail_counter
+
         # Rename
         original_date_str = stringOfRandoms
 
@@ -152,10 +161,14 @@ class PlantGame_AVSRS(TrainingGame):
         max_time_value, min_time_value = 0, 10000
         for i in range(len(data_num)-1):
             temp += 1
-            """ What happens here is that he takes a piece of the original data string, delimited by the indices of the "_" characters. AKA: what is String.split()?"""
-            this_response_time = float(original_date_str[data_num[i] + 1:data_num[i + 1]])  # Single time
+            """ What happens here is that he takes a piece of the original data
+                string, delimited by the indices of the "_" characters.
+                AKA: what is String.split()?"""
+            this_response_time = float(
+                original_date_str[data_num[i] + 1:data_num[i + 1]])
             if this_response_time >= max_time_value:
-                max_time_value = this_response_time  # Take the maximum and minimum values and use them as normalization
+                max_time_value = this_response_time
+                # Take the maximum and minimum values and use them as normalization
             if min_time_value >= this_response_time > 0:
                 min_time_value = this_response_time  # Take the maximum and minimum values and use them as normalization
 

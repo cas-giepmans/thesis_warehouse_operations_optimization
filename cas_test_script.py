@@ -2,6 +2,8 @@
 """
 Created on Thu Mar 10 16:09:44 2022
 
+Just a scratch document for testing some stuff.
+
 @author: casgi
 """
 import os

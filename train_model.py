@@ -2,6 +2,7 @@
 train PlantSimulation model
 @author: stone
 """
+import sys
 import matplotlib.pyplot as plt
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
 # from policyNet_PG_pytorch import PolicyValueNet as trainNet
@@ -76,9 +77,15 @@ class TrainGameModel():
             all_episode_reward.append(episode_reward)
             # self.saveBestModel()
             print(f"Finished episode {i_episode}/4000")
-            # print("i_episode:", i_episode, "episode_reward", episode_reward, "max_reward:" ,max(all_episode_reward),
-            #       "all_action:", all_action, "thisTime", self.My_Game_Model.episodeTime[len(self.My_Game_Model.episodeTime)-1],
-            #       "minTime:", min(self.My_Game_Model.episodeTime), "maxTime:", max(self.My_Game_Model.episodeTime), "lr", self.lr)
+            print("i_episode:", i_episode,
+                  "episode_reward", episode_reward,
+                  "max_reward:", max(all_episode_reward),
+                  "all_action:", all_action,
+                  "thisTime", self.My_Game_Model.episodeTime[
+                      len(self.My_Game_Model.episodeTime)-1],
+                  "minTime:", min(self.My_Game_Model.episodeTime),
+                  "maxTime:", max(self.My_Game_Model.episodeTime),
+                  "lr", self.lr)
 
             # print("i_episode:", i_episode, "episode_reward", episode_reward, "max_reward:", max(all_episode_reward), "all_action:", all_action)
 
@@ -143,10 +150,10 @@ def main():
     # my_game_model = mathTreeGame(xDim, yDim)
     my_game_model = plantGame(x_dim, y_dim)
 
-    train_episodes = 4000  # 不建议该值超过5000
+    train_episodes = 1  # 不建议该值超过5000
     train_plant_model = TrainGameModel(my_game_model)
     train_plant_model.run_training(train_episodes)
-    print("training end")
+    sys.exit("training end")
 
 
 if __name__ == '__main__':
