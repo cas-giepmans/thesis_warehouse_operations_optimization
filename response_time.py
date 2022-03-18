@@ -226,7 +226,27 @@ class Warehouse():
             _, f_target, _ = self.shelf_rfc[to_id]
             return abs(f_origin - f_target) * self.vt_floor_travel_time
 
-    def PerformOrder(self, infeed, selected_shelf_id=None, rfc=None):
+    def ExecuteOrder(self, infeed, selected_shelf_id=None, rfc=None):
+        """
+
+        Parameters.
+
+        ----------
+        infeed : bool
+            Whether the order is infeed, if not then it's outfeed.
+        selected_shelf_id : int
+            The ID of the shelf from which to retrieve or to store at.
+        rfc : 3-tuple
+            Tuple containing the row, floor and column of the selected shelf.
+
+
+        Return None.
+
+        -------
+        Perform an infeed/outfeed order. Used to be two functions 'Infeed' and
+        'Outfeed' but this seemed neater.
+
+        """
         if selected_shelf_id is None and rfc is None:
             raise Exception("""No location designated! Specify either a
                             selected_shelf_id or an (r, f, c), or both.""")
@@ -265,7 +285,10 @@ class Warehouse():
 
             self.agent_busy_till[agent] = action_time
             if infeed:
-                self.agent_location[agent][action_time] = c if agent != 'vt' else f
+                if agent != 'vt':
+                    self.agent_location[agent][action_time] = c
+                else:
+                    self.agent_location[agent][action_time] = f
             else:
                 self.agent_location[agent][action_time] = 0
 
@@ -367,9 +390,11 @@ class Warehouse():
 
     def GetRandomShelfId(self, occupied=True):
         """Return a shelf ID randomly picked from the available IDs."""
+        # Pick an occupied shelf's ID.
         if occupied:
             [r, f, c] = np.random.choice(
                 np.where(self.shelf_occupied == 1)).tolist()
+        # Pick an unoccupied shelf's ID.
         else:
             [r, f, c] = np.random.choice(
                 np.where(self.shelf_occupied == 0)).tolist()
