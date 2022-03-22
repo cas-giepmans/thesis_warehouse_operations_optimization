@@ -131,6 +131,8 @@ class PlantGame_AVSRS(TrainingGame):
         # get state_matrix
         state_time_matrix, is_end, episode_time = self.get_response_time(original_date_str)
 
+        """The partial reward is equal to the action time. Continue in
+        train_step in policy_net_AC_pytorch.py."""
         # calculate reward
         reward = self.last_episode_time - episode_time # 望大
         # reward = episode_time - self.last_episode_time # 望小

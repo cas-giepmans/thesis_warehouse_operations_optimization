@@ -25,7 +25,8 @@ class Warehouse():
             num_rows=2,
             num_floors=6,
             num_cols=8,
-            episode_length=1000):
+            episode_length=1000,
+            num_hist_rtms=1):
         """
 
 
@@ -49,6 +50,7 @@ class Warehouse():
         # Numpy arrays to keep track of response times and occupancy.
         self.rtm = np.zeros(self.dims)
         self.shelf_occupied = np.zeros(self.dims, dtype=bool)
+        self.rtm_history = []
 
         # dictionary to store shelf coordinates, accessed through shelf_id.
         self.shelf_rfc = {}  # Key: shelf_id[r, c, f], val: (r, c, f)
@@ -58,6 +60,7 @@ class Warehouse():
 
         # Variables about time
         self.episode_length = episode_length # Nr. of orders per episode.
+        self.num_historical_rtms = num_hist_rtms
         self.sim_time = 0.0
         self.last_episode_time = 0.0
         self.vt_floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
@@ -120,7 +123,32 @@ class Warehouse():
 
         self.order_system.reset()
 
-        return 
+        fresh_wh_state = self.get_wh_state()
+
+        return fresh_wh_state
+
+    def get_wh_state(self, infeed=True):
+        """Return the newly built warehouse state."""
+        return self.build_wh_state()
+
+    def build_wh_state(self, infeed=True):
+        """Build the new warehouse state, consisting of n historical RTMs, the
+        current RTM and the binary matrix representing pickable locations,
+        either for storage or for retrieval ops."""
+        wh_state = []
+        # Add historical RTMs, reshape them to fit Lei Luo's network.
+        # TODO: deal with the reshaping for different warehouse architectures.
+        for hrtm in self.rtm_history:
+            rtm = np.reshape(hrtm, (self.dims[0] * self.dims[1], self.dims[2]))
+            wh_state.append(rtm)
+        # Add the current RTM.
+        wh_state.append(self.rtm)
+        # Add the occupancy matrix.
+        if infeed is True:
+            wh_state.append(self.shelf_occupied)
+        else:
+            wh_state.append(~self.shelf_occupied)
+        return wh_state
 
     def do_action(self, action):
         
@@ -134,7 +162,9 @@ class Warehouse():
         """
         Calculate the response time matrix for each possible request given the
         current warehouse state. The prepositioning time for each location is
-        included in the calculation
+        included in the calculation. Based on whether a location (rfc) is
+        occupied or not, the response time is calculated as a retrieval or a
+        storage operation.
 
         Return None.
 
@@ -142,7 +172,12 @@ class Warehouse():
         None.
 
         """
-        # TODO: fix this function, see if Kutalmis' stuff is useful here or somewhere else.
+
+        # Archive the previous RTM.
+        self.rtm_history.insert(0, self.rtm)
+        if len(self.rtm_history) >= self.num_historical_rtms:
+            self.rtm_history.pop(-1)
+
         for i in range(0, self.num_locs):
             (r, f, c) = self.shelf_rfc[i]
             sequence = self.shelf_access_sequence[i]
@@ -213,19 +248,6 @@ class Warehouse():
                     # Calculate the response time for outfeed
                     self.rtm[r, f, c] += (agent_time_remaining +
                                           sequence[agent])
-
-
-        # Here rtm is ready
-
-    # def Take_Action(self, shelf_id, curent_time):
-    #     (r, f, c) = self.shelf_rfc[shelf_id]
-    #         sequence = self.shelf_access_sequence[i]
-
-    #             now = current_time
-    #             for s in sequence.keys():
-    #                 start_time = np.maximum(now, self.agent_busy_till[s])
-    #                 end_time = start_time + sequence[s]
-    #                  self.agent_usy_till[s] = end_time
 
     def Get_RTM(self, rfc=None):
         """Return the Response Time Matrix (RTM), or an entry from the RTM."""
@@ -489,6 +511,11 @@ class Warehouse():
         (r, f, c) = self.shelf_rfc[selected_shelf_id]
         self.shelf_occupied[r, f, c] = False
 
+    """
+    Below are some utility functions and pass-throughs.
+    |-------------------------------------------------------------------------|
+    """
+
     def GetRandomShelfId(self, occupied=True):
         """Return a shelf ID randomly picked from the available IDs."""
         # Pick an occupied shelf's ID.
@@ -508,6 +535,10 @@ class Warehouse():
             np.asarray(random_bools, dtype=bool),
             (self.dims[0], self.dims[1], self.dims[2]))
         self.shelf_occupied = random_array
+
+    # def get_next_order_id(self, prioritize_outfeed=True):
+    #     """Get an order from the order system."""
+    #     return self.order_system.get_next_order(prioritize_outfeed)
 
 
 def main():

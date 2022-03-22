@@ -59,3 +59,19 @@ random_array = random_array.reshape((2, 6, 8))
 print(random_array)
 random_array = np.reshape(random_array, (12, 8))
 print(random_array)
+
+print(np.finfo(np.float32).eps.item())
+
+# class test_class():
+#     def __init__(self):
+#         self.param =5
+    
+#     def calc(self, some_value):
+#         return self.param * some_value
+
+# test = test_class()
+
+# print(test(12))
+
+for i in range(1):
+    print(i)

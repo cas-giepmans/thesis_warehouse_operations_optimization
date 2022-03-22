@@ -43,7 +43,7 @@ class OrderSystem():
         # Perform some checks.
         if "order_type" not in kwargs:
             raise Exception(f"No order_type specified for order {order_id}")
-        if kwargs["order_type"] != ("infeed" or "outfeed"):
+        if kwargs["order_type"] != ("infeed" or "outfeed" or "random"):
             raise Exception(f"""The specified order_type {kwargs["order_type"]}
                             for order {order_id} is invalid""")
         if "item_type" not in kwargs:
@@ -86,6 +86,44 @@ class OrderSystem():
 
         order["in_queue"] = True
         order["time_in_queue"] = 0.0
+
+    def get_next_order(self, prioritize_outfeed=True):
+        """Get the next order from one of the queues"""
+        # Check if queues are empty.
+        infeed_queue_empty = False if self.infeed_queue.qsize() > 0 else True
+        outfeed_queue_empty = False if self.outfeed_queue.qsize() > 0 else True
+
+        # Catch the case where both queues are empty.
+        if infeed_queue_empty and outfeed_queue_empty:
+            raise Exception("""Both queues are empty.""")
+
+        # If there's an outfeed prioritization (to prevent saturated warehouse)
+        if prioritize_outfeed:
+            if not outfeed_queue_empty:
+                next_order_id = self.outfeed_queue.get()
+            else:
+                if not infeed_queue_empty:
+                    next_order_id = self.infeed_queue.get()
+        # No prioritization is given, 50/50 chance for both (if both non-empty)
+        else:
+            if not outfeed_queue_empty and not infeed_queue_empty:
+                # Get random boolean.
+                decider = bool(random.getrandbits(1))
+                if decider is True:
+                    next_order_id = self.outfeed_queue.get()
+                else:
+                    next_order_id = self.infeed_queue.get()
+            elif not outfeed_queue_empty:
+                next_order_id = self.outfeed_queue.get()
+            elif not infeed_queue_empty:
+                next_order_id = self.infeed_queue.get()
+
+        
+        # self.order_register[next_order_id]["time_in_queue"] = current_time - self.order_register[next_order_id]["time_created"]
+        # self.order_register[next_order_id]["in_queue"] = False
+        # self.order_register[next_order_id]["time_start"] = current_time
+
+        return next_order_id
 
     def ExecuteNextOrder(self, current_time, prioritize_outfeed=True):
         """

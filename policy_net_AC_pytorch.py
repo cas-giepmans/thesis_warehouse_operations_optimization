@@ -352,16 +352,30 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
                             help='interval between training status logs (default: 10)')
         args = parser.parse_args()
 
+        """This is what happens here: each partial reward is added to an
+        episode reward, such that r_episode = r_partial + gamma * r_episode.
+        Then, in the returns list, the new episode reward is added such that
+        returns contains all intermittend episode rewards, ordered from last to
+        first."""
         for r in self.rewards[::-1]:
             # calculate the discounted value
             R = r + args.gamma * R
             returns.insert(0, R)
 
+        """Then returns is cast as a tensor, and the epsilon of a float32 is
+        assigned to eps. Then, returns minus its mean is divided by its std +
+        eps. Eps is presumably added to avoid division by zero. essentially,
+        you calculate for each intermittent episode reward how many stds it is
+        from the mean."""
         returns = torch.tensor(returns)
         eps = np.finfo(np.float32).eps.item()
         returns = (returns - returns.mean()) / (returns.std() + eps)
 
+        """For every action and its reward, calculate the policy and value
+        network's losses. For the value network, use a smooth loss."""
         for (log_prob, value), R in zip(saved_actions, returns):
+            """advantage is the stdevs from the mean, minus the action value
+            as predicted by the network. Advantage is/should be a tensor."""
             advantage = R - value.item()
             # print("R:", R)
             # print("value:", value)
