@@ -1,6 +1,7 @@
 import socket
 from TrainingGame import TrainingGame
-from response_time import Warehouse as wh
+from response_time import Warehouse
+from orders import OrderSystem
 import copy
 import numpy as np
 
@@ -37,8 +38,8 @@ class PlantGame_AVSRS(TrainingGame):
         super(PlantGame_AVSRS, self).__init__(xDim, yDim)
         self.StateNum = 4  # stateNum represents the number of states passed in, which varies from game to game
 
-        self.last_trigger_time = 0
-        self.episodeTime = []
+        self.last_episode_time = 0
+        self.episodeTimes = []
         self.last_response_time_matrix = []
         self.this_episodes_time = 0.0
         self.local_episode_counter = 0
@@ -55,7 +56,7 @@ class PlantGame_AVSRS(TrainingGame):
 
     def init_para(self):
         self.AvailablePos = [1.] * self.X_dim * self.Y_dim
-        self.last_trigger_time = 0
+        self.last_episode_time = 0
         self.chooseTime = 1  # How many times the game has made a choice
         self.allAction = []
         self.local_episode_counter = 0
@@ -76,9 +77,10 @@ class PlantGame_AVSRS(TrainingGame):
 
         # original_date_str = self.get_state_from_socket()
         original_date_str = '_' + '_'.join([str(x) for x in np.round(np.random.uniform(3.0, 32.0, 96), 1).tolist()]) + '_' + f'{self.local_episode_counter}+1.00'
-        state_time_matrix, is_end, trigger_time = self.get_response_time(original_date_str)
+        state_time_matrix, is_end, episode_time = self.get_response_time(original_date_str)
 
-        self.last_trigger_time = trigger_time
+        # self.last_episode_time = 0.0
+        self.last_episode_time = episode_time
         return state_time_matrix
         # Contains three attempts: 1. Response time view, 2. Selectable location view, and 3. Last few selection views
         # Added a new view: Response time view at last selection (first view)
@@ -91,54 +93,60 @@ class PlantGame_AVSRS(TrainingGame):
         self.allAction.append(action)
         self.chooseTime += 1
         
-        # Generate list of randoms
-        listOfRandoms = np.round(np.random.uniform(3.0, 32.0, 96), 1).tolist()
+        # # Generate list of randoms
+        # listOfRandoms = np.round(np.random.uniform(3.0, 32.0, 96), 1).tolist()
         
-        # Add the time of the chosen action to this episode's time
-        self.this_episodes_time += listOfRandoms[action]
+        # # Add the time of the chosen action to this episode's time
+        # self.this_episodes_time += listOfRandoms[action]
         
-        # Element-wise multiplication of randoms and available locations.
-        # This gives 0 for every occupied location, just like the simulation.
-        listOfRandomsWithoutFilledSpaces = [
-            listOfRandoms[i] *
-            self.AvailablePos[i] for i in range(len(listOfRandoms))]
+        # # Element-wise multiplication of randoms and available locations.
+        # # This gives 0 for every occupied location, just like the simulation.
+        # listOfRandomsWithoutFilledSpaces = [
+        #     listOfRandoms[i] *
+        #     self.AvailablePos[i] for i in range(len(listOfRandoms))]
 
-        """ Check for last action, increase local episode counter if satisfied
-            this was wrong, episode counting was already being done. This
-            actually just functions as a finish indicator."""
+        # """ Check for last action, increase local episode counter if satisfied
+        #     this was wrong, episode counting was already being done. This
+        #     actually just functions as a finish indicator."""
 
-        if len(self.allAction) == 96:
-            self.local_episode_counter = 1
+        # if len(self.allAction) == 96:
+        #     self.local_episode_counter = 1
 
-        """ Create the 'tail counter', this keeps track of nr of episodes and
-            this episode's run time."""
+        # """ Create the 'tail counter', this keeps track of nr of episodes and
+        #     this episode's run time."""
 
-        tail_counter = f'_{self.local_episode_counter}+{round(self.this_episodes_time, 2)}'
+        # tail_counter = f'_{self.local_episode_counter}+{round(self.this_episodes_time, 2)}'
 
-        # Parse randoms to one string, separated by '_' and add tail counter
-        stringOfRandoms = '_' + '_'.join([
-            str(x) for x in listOfRandomsWithoutFilledSpaces]) + tail_counter
+        # # Parse randoms to one string, separated by '_' and add tail counter
+        # stringOfRandoms = '_' + '_'.join([
+        #     str(x) for x in listOfRandomsWithoutFilledSpaces]) + tail_counter
 
-        # Rename
-        original_date_str = stringOfRandoms
+        # # Rename
+        # original_date_str = stringOfRandoms
 
 
         # recieve socket message
         # original_date_str = self.get_state_from_socket()
 
         # get state_matrix
-        state_time_matrix, is_end, trigger_time = self.get_response_time(original_date_str)
+        state_time_matrix, is_end, episode_time = self.get_response_time(original_date_str)
 
         # calculate reward
-        reward = self.last_trigger_time - trigger_time # 望大
-        # reward = trigger_time - self.last_trigger_time # 望小
-        self.last_trigger_time = trigger_time
+        reward = self.last_episode_time - episode_time # 望大
+        # reward = episode_time - self.last_episode_time # 望小
+        self.last_episode_time = episode_time
 
         return state_time_matrix, reward, is_end
 
     def dolastAction(self):
         # self.socketObj.send(str(-1.).encode())
         return
+
+    def get_response_time(self, response_time_matrix):
+        """This replaces an earlier implementation by Lei Luo. It takes in an
+        ndarray, maintained by the Warehouse instance."""
+        
+        return state, is_end, episode_time
 
     def get_response_time(self, original_date_str):
         # print("A new step")
@@ -179,6 +187,7 @@ class PlantGame_AVSRS(TrainingGame):
                 permit_place_in_row.append(1.)
             response_time_in_row.append(this_response_time)
 
+            # If you've reached the last item in this row.
             if temp == self.X_dim:   # 换行--------------------------------------------------
                 response_time_matrix.append(response_time_in_row)
                 permit_place_matrix.append(permit_place_in_row)
@@ -190,21 +199,21 @@ class PlantGame_AVSRS(TrainingGame):
         # print("min_time_value:", min_time_value)
 
         """Normalize response_time_matrix"""
-        for oneYDim in range(len(response_time_matrix)):
-            for oneXDim in range(len(response_time_matrix[0])):
-                if response_time_matrix[oneYDim][oneXDim] == 0:
-                    # Equal to 0 itself, no action is taken
-                    pass
-                else:
-                    if max_time_value == min_time_value:
-                        response_time_matrix[oneYDim][oneXDim] = 1.
-                    else:
-                        response_time_matrix[oneYDim][oneXDim] = (max_time_value - response_time_matrix[oneYDim][oneXDim]) / \
-                                                                 (max_time_value - min_time_value)
-                        # response_time_matrix[oneYDim][oneXDim] = (response_time_matrix[oneYDim][oneXDim] - min_time_value) / \
-                        #                                          (max_time_value - min_time_value)
-                        # response_time_matrix[oneYDim][oneXDim] =
-                        # response_time_matrix[oneYDim][oneXDim] / max_time_value
+        # for oneYDim in range(len(response_time_matrix)):
+        #     for oneXDim in range(len(response_time_matrix[0])):
+        #         if response_time_matrix[oneYDim][oneXDim] == 0:
+        #             # Equal to 0 itself, no action is taken
+        #             pass
+        #         else:
+        #             if max_time_value == min_time_value:
+        #                 response_time_matrix[oneYDim][oneXDim] = 1.
+        #             else:
+        #                 response_time_matrix[oneYDim][oneXDim] = (max_time_value - response_time_matrix[oneYDim][oneXDim]) / \
+        #                                                          (max_time_value - min_time_value)
+        #                 # response_time_matrix[oneYDim][oneXDim] = (response_time_matrix[oneYDim][oneXDim] - min_time_value) / \
+        #                 #                                          (max_time_value - min_time_value)
+        #                 # response_time_matrix[oneYDim][oneXDim] =
+        #                 # response_time_matrix[oneYDim][oneXDim] / max_time_value
 
         # Gets an optional location view
         action_num = 20
@@ -237,17 +246,21 @@ class PlantGame_AVSRS(TrainingGame):
 
         # self.last_response_time_matrix = copy.deepcopy(response_time_matrix)  # Save the last matrix
 
-        trigger_time = float(original_date_str[data_num[len(data_num) - 1] + 2:])
-        trigger_time = round(trigger_time, 1)
+        # This is the episode time.
+        episode_time = float(original_date_str[data_num[len(data_num) - 1] + 2:])
+        episode_time = round(episode_time, 1)
 
+        """ For finishing: finish if warehouse is full or you've processed
+        1000 orders."""
+        # TODO: specify new end conditions (read above)
         finish_no = float(original_date_str[data_num[len(data_num)-1]+1])
         is_end = True if finish_no == 1 else False
         if finish_no == 1:
             is_end = True
-            self.episodeTime.append(trigger_time)
+            self.episodeTimes.append(episode_time)
         else:
             is_end = False
 
-        return state, is_end, trigger_time
+        return state, is_end, episode_time
 
 

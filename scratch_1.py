@@ -51,3 +51,11 @@ print(str2_index)
 simString = '_'.join([str(x) for x in np.round(np.random.uniform(3.0, 32.0, 96)).tolist()])
 simString = '_' + simString + '_' + '0+22.35'
 print(simString)
+
+random_numbers = (np.random.rand(96) > 0.5).astype(int)
+print(random_numbers)
+random_array = np.asarray(random_numbers, dtype=bool, order=None)
+random_array = random_array.reshape((2, 6, 8))
+print(random_array)
+random_array = np.reshape(random_array, (12, 8))
+print(random_array)

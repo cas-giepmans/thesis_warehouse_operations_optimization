@@ -6,6 +6,7 @@ Created on Thu Mar 10 16:09:44 2022.
 """
 import numpy as np
 import random
+from orders import OrderSystem
 
 
 class Warehouse():
@@ -19,7 +20,12 @@ class Warehouse():
 
     """
 
-    def __init__(self, num_rows=2, num_floors=6, num_cols=8):
+    def __init__(
+            self,
+            num_rows=2,
+            num_floors=6,
+            num_cols=8,
+            episode_length=1000):
         """
 
 
@@ -51,8 +57,9 @@ class Warehouse():
         self.shelf_id = np.zeros(self.dims)
 
         # Variables about time
-        self.T = 4.0
+        self.episode_length = episode_length # Nr. of orders per episode.
         self.sim_time = 0.0
+        self.last_episode_time = 0.0
         self.vt_floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
         self.column_travel_time = 1.8 / 1  # 1.8m col width, 1m/s shuttle speed
 
@@ -72,7 +79,15 @@ class Warehouse():
 
         # sequence of agents to acess to each shelf, with access time
         self.shelf_access_sequence = {}
-        i = 0  # shelf id
+
+        # Count the number of storage/retrieval actions.
+        self.action_counter = 0
+
+        # Initiate the order system.
+        self.order_system = OrderSystem()
+
+        # Shelf ID counter.
+        i = 0
 
         for c in range(self.num_cols):
             for f in range(self.num_floors):
@@ -86,12 +101,40 @@ class Warehouse():
 
                     i += 1
 
-        # print(self.shelf_access_sequence)
+    def init_state(self):
+        """Initiate the state for a new training episode."""
+        self.shelf_occupied = np.zeros(self.dims, dtype=bool)
+        # self.SetRandomOccupancy()  # Randomize occupancy(?)
+        self.last_episode_time = self.sim_time
+        self.sim_time = 0.0
+        self.action_counter = 0
 
-    # def CalcRTM(self, current_time):
+        self.agent_busy_till = {'vt': 0}
+
+        for f in range(self.num_floors):
+            self.agent_busy_till['sh'+str(f)] = 0
+
+        self.agent_location = {'vt': {0.0: 0}}
+        for f in range(self.num_floors):
+            self.agent_location['sh'+str(f)] = {0.0: 0}
+
+        self.order_system.reset()
+
+        return 
+
+    def do_action(self, action):
+        
+        self.action_counter += 1
+        is_end = True if self.action_counter == self.episode_length else False
+        
+        return self.rtm, reward, is_end
+        
+
     def CalcRTM(self):
         """
-
+        Calculate the response time matrix for each possible request given the
+        current warehouse state. The prepositioning time for each location is
+        included in the calculation
 
         Return None.
 
@@ -106,22 +149,71 @@ class Warehouse():
 
             self.rtm[r, f, c] = 0
 
+            # If infeed.
             if ~self.shelf_occupied[r, f, c]:
-                # now = current_time
                 for agent in sequence.keys():
-                #     start_time = np.maximum(now, self.agent_busy_till[s])
-                #     end_time = start_time + sequence[s]
-                #     # if we take this action: self.agent_usy_till[s] = end_time
-                #     now = end_time
-                # rtm = now - current_time
-                    agent_time_remaining = np.maximum(
-                        0,
-                        (self.agent_busy_till[agent] - self.sim_time))
+                    busy_till = self.agent_busy_till[agent]
+                    # Get the furthest-known agent location.
+                    if agent == 'vt':
+                        agent_loc = self.agent_location[
+                            busy_till]
+
+                        agent_time_remaining = np.maximum(
+                            0,
+                            (busy_till - self.sim_time))
+                        # Add the prepositioning time
+                        agent_time_remaining += (
+                            self.CalcAgentTravelTime(
+                                agent,
+                                self.shelf_id[0, agent_loc, 0],
+                                0))
+                    else:
+                        agent_loc = self.agent_location[
+                            busy_till]
+
+                        agent_time_remaining = np.maximum(
+                            0,
+                            (busy_till - self.sim_time))
+                        agent_time_remaining += (
+                            self.CalcAgentTravelTime(
+                                agent,
+                                self.shelf_id[0, 0, agent_loc],
+                                0))
+                    # Calculate the response time for infeed.
                     self.rtm[r, f, c] += (agent_time_remaining +
                                           sequence[agent])
-                    # self.rtm[r, c, f] += np.maximum(
-                    #     self.T,
-                    #     self.agent_busy_till[s]) + sequence[s]
+            # If outfeed.
+            else:
+                for agent in sequence.keys():
+                    busy_till = self.agent_busy_till[agent]
+                    # Get the furthest-known agent location.
+                    if agent == 'vt':
+                        agent_loc = self.agent_location[
+                            busy_till]
+                        agent_time_remaining = np.maximum(
+                            0,
+                            (busy_till - self.sim_time))
+                        # Add the prepositioning time from agent_loc to rfc.
+                        agent_time_remaining += (
+                            self.CalcAgentTravelTime(
+                                agent,
+                                self.shelf_id[0, agent_loc, 0],
+                                self.shelf_id[r, f, c]))
+                    else:
+                        agent_loc = self.agent_location[
+                            busy_till]
+                        agent_time_remaining = np.maximum(
+                            0,
+                            (busy_till - self.sim_time))
+                        agent_time_remaining += (
+                            self.CalcAgentTravelTime(
+                                agent,
+                                self.shelf_id[0, 0, agent_loc],
+                                self.shelf_id[r, f, c]))
+                    # Calculate the response time for outfeed
+                    self.rtm[r, f, c] += (agent_time_remaining +
+                                          sequence[agent])
+
 
         # Here rtm is ready
 
@@ -136,7 +228,7 @@ class Warehouse():
     #                  self.agent_usy_till[s] = end_time
 
     def Get_RTM(self, rfc=None):
-        """Return the response time matrix."""
+        """Return the Response Time Matrix (RTM), or an entry from the RTM."""
         return self.rtm if rfc is None else self.rtm[rfc[0], rfc[1], rfc[2]]
 
     def PrintRTM(self):
@@ -145,6 +237,10 @@ class Warehouse():
 
     def ReadyTransporters(self, selected_shelf_id, infeed=True):
         """
+
+        Given the ID of a shelf to be accessed and the type of operation, move
+        every involved agent to the required starting location and update their
+        busy times accordingly.
 
         Parameters.
 
@@ -158,9 +254,7 @@ class Warehouse():
         Return None.
 
         -------
-        Given the ID of a shelf to be accessed and the type of operation, move
-        every involved agent to the required starting location and update their
-        busy times accordingly.
+        
 
         """
         # Get all the agents involved in accessing the selected shelf.
@@ -210,7 +304,7 @@ class Warehouse():
             The ID of the target location
 
 
-        Return travel time.
+        Returns travel time.
 
         -------
         Calculate the time required by an agent from traveling from point A to
@@ -226,7 +320,7 @@ class Warehouse():
             _, f_target, _ = self.shelf_rfc[to_id]
             return abs(f_origin - f_target) * self.vt_floor_travel_time
 
-    def ExecuteOrder(self, infeed, selected_shelf_id=None, rfc=None):
+    def ProcessOrder(self, infeed, selected_shelf_id=None, rfc=None):
         """
 
         Parameters.
@@ -240,7 +334,7 @@ class Warehouse():
             Tuple containing the row, floor and column of the selected shelf.
 
 
-        Return None.
+        Returns None.
 
         -------
         Perform an infeed/outfeed order. Used to be two functions 'Infeed' and
@@ -258,6 +352,13 @@ class Warehouse():
                 selected_shelf_id = self.shelf_id[rfc[0], rfc[1], rfc[2]]
             else:
                 (r, f, c) = self.shelf_rfc[selected_shelf_id]
+
+        # Check whether there are any available spots
+        if infeed and not np.any(~self.shelf_occupied):
+            raise Exception("The warehouse is fully filled, can't infeed!")
+        if not infeed and not self.shelf_occupied.any():
+            raise Exception("Warehouse is empty, no items to outfeed!")
+            
 
         self.ReadyTransporters(selected_shelf_id, infeed)
 
@@ -400,6 +501,14 @@ class Warehouse():
                 np.where(self.shelf_occupied == 0)).tolist()
         return self.shelf_id[r, f, c]
 
+    def SetRandomOccupancy(self):
+        """Randomly sets every shelf to either True or False."""
+        random_bools = (np.random.rand(self.num_locs) > 0.5).astype(bool)
+        random_array = np.reshape(
+            np.asarray(random_bools, dtype=bool),
+            (self.dims[0], self.dims[1], self.dims[2]))
+        self.shelf_occupied = random_array
+
 
 def main():
     test_wh = Warehouse()
@@ -411,7 +520,7 @@ def main():
     print(test_wh.agent_location)
 
     # Infeed an item
-    test_wh.Infeed(item_id_a)
+    test_wh.ProcessOrder(infeed=True, selected_shelf_id=item_id_a)
     # Calculate the new response time matrix given the new infeed order
     test_wh.CalcRTM()
     # Print it
@@ -421,7 +530,7 @@ def main():
     test_wh.sim_time += 1
     print(test_wh.agent_location)
 
-    test_wh.Infeed(item_id_b)
+    test_wh.ProcessOrder(infeed=True, selected_shelf_id=item_id_b)
     test_wh.CalcRTM()
     test_wh.PrintRTM()
     # test_wh.sim_time += test_wh.Get_RTM(test_wh.shelf_rfc[item_id_b])

@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
 from collections import namedtuple
-from torch.autograd import Variable
+# from torch.autograd import Variable
 import numpy as np
 import copy
 
