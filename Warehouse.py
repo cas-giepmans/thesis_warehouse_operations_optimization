@@ -172,7 +172,9 @@ class Warehouse():
         None.
 
         """
-
+        """ TODO: of each agent in the sequence, only take the LONGEST response
+        time of all the agents. Don't compound the!"""
+        
         # Archive the previous RTM.
         self.rtm_history.insert(0, self.rtm)
         if len(self.rtm_history) >= self.num_historical_rtms:
