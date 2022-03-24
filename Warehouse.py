@@ -191,7 +191,7 @@ class Warehouse():
                 # Pick-up item and go to srequired location, the agents who will get the item will wait for you
                 curr_time = np.maximum(busy_till, curr_time) + self.CalcAgentTravelTime(agent,pth[0],pth[1])
 
-            return curr_time
+            return curr_time - self.sim_time
 
     def CalcRTM(self):
         """
