@@ -150,12 +150,12 @@ class Warehouse():
             wh_state.append(~self.shelf_occupied)
         return wh_state
 
-    def do_action(self, action):
+    # def do_action(self, action):
         
-        self.action_counter += 1
-        is_end = True if self.action_counter == self.episode_length else False
+    #     self.action_counter += 1
+    #     is_end = True if self.action_counter == self.episode_length else False
         
-        return self.rtm, reward, is_end
+    #     return self.rtm, reward, is_end
         
 
     def CalcRTM(self):
@@ -194,14 +194,14 @@ class Warehouse():
 
             # Keep track of the longest prepositioning time for this sequence's agents. Only the
             # longest will be added to the final RTM, since every agent with a shorter
-            # prepositioning time will be already be done with prepositioning itself.
+            # prepositioning time will already be done with prepositioning itself.
             max_prep_time = 0.0
 
             # In case the considered location (r, f, c) is not occupied, i.e. a possible infeed
             # location, we calculate the time required for infeeding an item to this shelf,
             # including the prepositioning of the agents to their default infeed location (0, 0, 0).
             if ~self.shelf_occupied[r, f, c]:
-                for agent in sequence.keys():
+                for agent in list(sequence.keys()):
                     busy_till = self.agent_busy_till[agent]
                     agent_loc = self.agent_location[agent][busy_till]
 
@@ -238,7 +238,7 @@ class Warehouse():
                 # For each agent in the (reversed) sequence (since this is outfeed), calculate its
                 # contribution to the response time for location (r, f, c) and add it to the
                 # RTM(r, f, c).
-                for agent in reversed(sequence.keys()):
+                for agent in reversed(list(sequence.keys())):
                     busy_till = self.agent_busy_till[agent]
                     agent_loc = self.agent_location[agent][busy_till]
 

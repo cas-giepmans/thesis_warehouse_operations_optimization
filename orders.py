@@ -24,7 +24,7 @@ class OrderSystem():
         self.order_register = {}
         self.order_count = 0
 
-    def reset(self):
+    def Reset(self):
         """Reset the order system for the next training episode."""
         self.infeed_queue.empty()
         self.outfeed_queue.empty()
@@ -53,7 +53,10 @@ class OrderSystem():
         self.order_count += 1
 
         # Get keyword arguments.
-        order_type = kwargs["order_type"]
+        if kwargs["order_type"] == "random":
+            order_type = "infeed" if bool(random.getrandbits(1)) else "outfeed"
+        else:
+            order_type = kwargs["order_type"]
         item_type = kwargs["item_type"]
         current_time = kwargs["current_time"]
 
@@ -87,8 +90,8 @@ class OrderSystem():
         order["in_queue"] = True
         order["time_in_queue"] = 0.0
 
-    def get_next_order(self, prioritize_outfeed=True):
-        """Get the next order from one of the queues"""
+    def GetNextOrder(self, prioritize_outfeed=True):
+        """Get the next order from one of the queues."""
         # Check if queues are empty.
         infeed_queue_empty = False if self.infeed_queue.qsize() > 0 else True
         outfeed_queue_empty = False if self.outfeed_queue.qsize() > 0 else True
@@ -118,12 +121,7 @@ class OrderSystem():
             elif not infeed_queue_empty:
                 next_order_id = self.infeed_queue.get()
 
-        
-        # self.order_register[next_order_id]["time_in_queue"] = current_time - self.order_register[next_order_id]["time_created"]
-        # self.order_register[next_order_id]["in_queue"] = False
-        # self.order_register[next_order_id]["time_start"] = current_time
-
-        return next_order_id
+        return next_order_id, self.order_register[next_order_id]
 
     def ExecuteNextOrder(self, current_time, prioritize_outfeed=True):
         """

@@ -50,7 +50,7 @@ class TrainGameModel():
                     current_time=self.wh_sim.sim_time)
 
                 # Pick order from queues.
-                picked_order_id = self.wh_sim.order_system.get_next_order(False)
+                picked_order_id = self.wh_sim.order_system.GetNextOrder(False)
 
                 # Calculate a new RTM.
                 self.wh_sim.CalcRTM()
