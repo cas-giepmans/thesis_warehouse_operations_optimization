@@ -89,8 +89,9 @@ class Warehouse():
         # Initiate the order system.
         self.order_system = OrderSystem()
 
-        # Shelf ID counter.
-        i = 0
+        # Compute time needed to reach the shelf from infeed point 
+        # (assumes agents are at their default position)
+        i = 0 # Initiate shelf ID counter.
 
         for c in range(self.num_cols):
             for f in range(self.num_floors):
@@ -127,10 +128,12 @@ class Warehouse():
 
         return fresh_wh_state
 
+    # CHECK: is this one really necessary?
     def GetState(self, infeed=True):
         """Return the newly built warehouse state."""
         return self.BuildState()
 
+    # CHECK: don't you need occupancy history?
     def BuildState(self, infeed=True):
         """Build the new warehouse state, consisting of n historical RTMs, the
         current RTM and the binary matrix representing pickable locations,
@@ -151,12 +154,44 @@ class Warehouse():
         return wh_state
 
     def do_action(self, action):
-        
+        # CHECK comments pls
         self.action_counter += 1
         is_end = True if self.action_counter == self.episode_length else False
         
-        return self.rtm, reward, is_end
+        return self.rtm(action), reward, is_end
         
+    def CalcShelfAccessTime(self, shelf_id, infeed=True):
+
+            # Get the row, floor and column coordinates for shelf i.
+            (r, f, c) = self.shelf_rfc[shelf_id]
+
+            # Get the shelf access sequence for given shelf, e.g. the agents involved in accessing this shelf. 
+            sequence = self.shelf_access_sequence[shelf_id]
+
+            # The sequence must be reversed for outfeed response time calculation.
+            agents = sequence.keys() if infeed else reversed(sequence.keys())
+            pth = (0, shelf_id) if infeed else (shelf_id, 0)
+                
+            # initiate time
+            curr_time = self.sim_time
+
+            # move agents one by one to access to the shelf
+            for agent in agents:
+                # Agent will be available at this position at this time
+                busy_till = self.agent_busy_till[agent]
+                agent_loc = self.agent_location[agent][busy_till]
+
+                # Wait till agent is ready (assuming that we don't have a prepositioning policy),
+                # but agent can start moving immediately for prepositioning if it is not busy.
+                busy_till = np.maximum(busy_till, self.sim_time)
+
+                # Perform prepositioning, no need to wait for other agents
+                busy_till += self.CalcAgentTravelTime(agent,self.shelf_id[0, agent_loc, 0],pth[0])
+                
+                # Pick-up item and go to srequired location, the agents who will get the item will wait for you
+                curr_time = np.maximum(busy_till, curr_time) + self.CalcAgentTravelTime(agent,pth[0],pth[1])
+
+            return curr_time
 
     def CalcRTM(self):
         """
