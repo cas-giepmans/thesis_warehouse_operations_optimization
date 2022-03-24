@@ -34,36 +34,49 @@ class TrainGameModel():
         all_episode_reward = []
         for i_episode in range(train_episodes):
             wh_state = self.wh_sim.init_state()
-            available_pos = self.wh_sim.get_available_pos()
+            # Fill the RTM history registry
+            for i in wh_state.num_hist_rtms:
+                self.wh_sim.CalcRTM()
+
             episode_reward = 0
             all_action = []
             all_reward = []
 
             while True:
                 # TODO: Increase the sim_time by some amount here.
-                o_type = "infeed" if bool(random.getrandbits(1)) else "outfeed"
+
+                # Get the occupancy (and inverse occupancy).
+                occupied_locs = self.wh_sim.shelf_occupied
+                free_locs = ~occupied_locs
 
                 # Generate a new order.
-                self.wh_sim.order_system.GenerateNewOrder(
-                    order_type=o_type,
-                    item_type=1,
-                    current_time=self.wh_sim.sim_time)
+                self.wh_sim.order_system.GenerateNewOrder(order_type="random",
+                                                          item_type=1,
+                                                          current_time=self.wh_sim.sim_time)
 
-                # Pick order from queues.
-                picked_order_id = self.wh_sim.order_system.GetNextOrder(False)
+                # Pick an order from one of the queues.
+                next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(False)
 
                 # Calculate a new RTM.
                 self.wh_sim.CalcRTM()
 
                 # Prepare the state.
-                wh_state = self.wh_sim.get_wh_state()
-                action = self.neural_network.select_action(np.array(wh_state),
-                                                           available_pos)
+                wh_state = self.wh_sim.GetState()
+
+                # Select an action with the NN based on the state, order type and occupancy.
+                # TODO: Make sure the selected action is a usable shelf_id!
+                if next_order["order_type"] == "infeed":
+                    action = self.neural_network.select_action(np.array(wh_state), free_locs)
+                elif next_order["order_type"] == "outfeed":
+                    action = self.neural_network.select_action(np.array(wh_state), occupied_locs)
+                else:
+                    raise Exception(f"""The order type of order {next_order_id}
+                                    ({next_order["order_type"]}) is wrong! Time:
+                                    {self.wh_sim.sim_time}.""")
 
                 all_action.append(action)
                 # Have the selected action get executed by the warehouse sim.
                 wh_state, this_reward, is_end = self.wh_sim.do_action(action)
-                available_pos = self.wh_sim.get_available_pos()
                 self.neural_network.add_reward(this_reward)
                 episode_reward += this_reward
 
@@ -71,7 +84,7 @@ class TrainGameModel():
                     break
 
             # Adjust the learning rate.
-            self.epsiode_count = self.epsiode_count + 1 # self.epsiode_count += 1
+            self.epsiode_count = self.epsiode_count + 1  # self.epsiode_count += 1
             if self.epsiode_count == self.change_count:
                 self.lr = self.lr*self.lr_decay
                 self.change_count = 500
@@ -107,7 +120,7 @@ class TrainGameModel():
         # 根据总耗时最小的原则确定是否保存为新模型
         if self.wh_sim.episodeTimes[len(self.wh_sim.episodeTimes)-1] == min(self.wh_sim.episodeTimes):
             savePath = "./plantPolicy_" + str(self.wh_sim.XDim) + "_" + str(self.wh_sim.YDim) + "_" + str(
-            self.train_episodes) + ".model"
+                self.train_episodes) + ".model"
             self.neural_network.save_model(savePath)  # 保存模型
 
     def drawResult(self, all_episode_reward):
