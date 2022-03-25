@@ -59,7 +59,7 @@ class Warehouse():
         self.shelf_id = np.zeros(self.dims)
 
         # Variables about time
-        self.episode_length = episode_length # Nr. of orders per episode.
+        self.episode_length = episode_length  # Nr. of orders per episode.
         self.num_historical_rtms = num_hist_rtms
         self.sim_time = 0.0
         self.last_episode_time = 0.0
@@ -89,9 +89,9 @@ class Warehouse():
         # Initiate the order system.
         self.order_system = OrderSystem()
 
-        # Compute time needed to reach the shelf from infeed point 
+        # Compute time needed to reach the shelf from infeed point
         # (assumes agents are at their default position)
-        i = 0 # Initiate shelf ID counter.
+        i = 0  # Initiate shelf ID counter.
 
         for c in range(self.num_cols):
             for f in range(self.num_floors):
@@ -154,59 +154,58 @@ class Warehouse():
         return wh_state
 
     # def do_action(self, action):
-        
+
     #     self.action_counter += 1
     #     is_end = True if self.action_counter == self.episode_length else False
-        
+
     #     return self.rtm, reward, is_end
-        
+
     def CalcShelfAccessTime(self, shelf_id, infeed=True):
+        """Calculates the time needed for accessing a shelf, either for infeed or outfeed."""
 
-            # Get the row, floor and column coordinates for shelf i.
-            (r, f, c) = self.shelf_rfc[shelf_id]
+        # Get the shelf access sequence for given shelf.
+        sequence = self.shelf_access_sequence[shelf_id]
 
-            # Get the shelf access sequence for given shelf, e.g. the agents involved in accessing this shelf. 
-            sequence = self.shelf_access_sequence[shelf_id]
+        # The sequence must be reversed for outfeed response time calculation.
+        agents = sequence.keys() if infeed else reversed(list(sequence.keys()))
+        pth = (0, shelf_id) if infeed else (shelf_id, 0)
 
-            # The sequence must be reversed for outfeed response time calculation.
-            agents = sequence.keys() if infeed else reversed(sequence.keys())
-            pth = (0, shelf_id) if infeed else (shelf_id, 0)
-                
-            # initiate time
-            curr_time = self.sim_time
+        # initiate time
+        curr_time = self.sim_time
 
-            # move agents one by one to access to the shelf
-            for agent in agents:
-                # Agent will be available at this position at this time
-                busy_till = self.agent_busy_till[agent]
-                agent_loc = self.agent_location[agent][busy_till]
+        # move agents one by one to access to the shelf
+        for agent in agents:
+            # Agent will be available at this position at this time
+            busy_till = self.agent_busy_till[agent]
+            agent_loc = self.agent_location[agent][busy_till]
 
-                # Wait till agent is ready (assuming that we don't have a prepositioning policy),
-                # but agent can start moving immediately for prepositioning if it is not busy.
-                busy_till = np.maximum(busy_till, self.sim_time)
+            # Wait till agent is ready (assuming that we don't have a prepositioning policy),
+            # but agent can start moving immediately for prepositioning if it is not busy.
+            busy_till = np.maximum(busy_till, self.sim_time)
 
-                # Perform prepositioning, no need to wait for other agents
-                busy_till += self.CalcAgentTravelTime(agent,self.shelf_id[0, agent_loc, 0],pth[0])
-                
-                # Pick-up item and go to srequired location, the agents who will get the item will wait for you
-                curr_time = np.maximum(busy_till, curr_time) + self.CalcAgentTravelTime(agent,pth[0],pth[1])
+            # Perform prepositioning, no need to wait for other agents
+            busy_till += self.CalcAgentTravelTime(agent, self.shelf_id[0, agent_loc, 0], pth[0])
 
-            return curr_time - self.sim_time
+            # Pick-up item and go to required location, the agents who will get the item will wait.
+            curr_time = np.maximum(busy_till, curr_time) + self.CalcAgentTravelTime(agent,
+                                                                                    pth[0],
+                                                                                    pth[1])
+
+        # Return the relative time
+        return curr_time - self.sim_time
 
     def CalcRTM(self):
         """
-        IMPORTANT: Make sure that between the last update of Warehouse.sim_time and the execution
-        of this function, no actions are scheduled and each agent's schedule (busy times) isn't
-        altered.
+        Important: make sure to update Warehouse.sim_time before you calculate the RTM, and that you
+        calculate the RTM before you change the warehouse state (by performing an action).
 
-        Calculate a new Response Time Matrix.  for each possible request given the current warehouse
-        state. The prepositioning time for each location is included in the calculation. Based on
-        whether a location (r, f, c) is occupied or not, the response time is calculated as a
-        retrieval or a storage operation.
+        Calculate the Response Time Matrix (RTM) at the current sim time.
 
-        Return None.
+        Returns
+        -------
+        None.
+
         """
-
         # Archive the previous RTM in a shift registry.
         self.rtm_history.insert(0, self.rtm)
 
@@ -217,95 +216,131 @@ class Warehouse():
         # Reset the current RTM.
         self.rtm = np.zeros_like(self.rtm)
 
-        # For each shelf in the warehouse, calculate the response time.
-        for i in range(0, self.num_locs):
-            # Get the row, floor and column coordinates for shelf i.
-            (r, f, c) = self.shelf_rfc[i]
+        # For each shelf in the warehouse, calculate the access time.
+        for shelf_id in range(self.num_locs):
+            # Get the row, floor and column coordinates for this shelf.
+            (r, f, c) = self.shelf_rfc[shelf_id]
 
-            # Get the shelf access sequence for shelf i, e.g. the agents involved in accessing this
-            # shelf. Remember, the sequence must be reversed for outfeed response time calculation.
-            # (reversing does not really matter but it keeps you sane if you do it consistently)
-            sequence = self.shelf_access_sequence[i]
-
-            # Keep track of the longest prepositioning time for this sequence's agents. Only the
-            # longest will be added to the final RTM, since every agent with a shorter
-            # prepositioning time will already be done with prepositioning itself.
-            max_prep_time = 0.0
-
-            # In case the considered location (r, f, c) is not occupied, i.e. a possible infeed
-            # location, we calculate the time required for infeeding an item to this shelf,
-            # including the prepositioning of the agents to their default infeed location (0, 0, 0).
+            # If the shelf is occupied, we can infeed to this location.
             if ~self.shelf_occupied[r, f, c]:
-                for agent in list(sequence.keys()):
-                    busy_till = self.agent_busy_till[agent]
-                    agent_loc = self.agent_location[agent][busy_till]
-
-                    # Find out for how long the agent is busy, or if it's available immediately.
-                    agent_time_remaining = np.maximum(0, (busy_till - self.sim_time))
-
-                    # Calculate how long the agent would need for prepositioning from the location
-                    # it finished its last task at to the default infeed location for this agent.
-                    # Differentiate between 'vt' and 'sh_'. Note that the (r, f, c) of shelf_id[0]
-                    # is (0, 0, 0), it is not important that shuttles occupy different floors here.
-                    if agent == 'vt':
-                        # Find out if this agent needs more prepositioning time than previous ones.
-                        max_prep_time = np.maximum(max_prep_time,
-                                                   self.CalcAgentTravelTime(
-                                                       agent,
-                                                       self.shelf_id[0, agent_loc, 0],
-                                                       0))
-                    else:
-                        # Same as above, but for shuttles (column movement) instead of vertical
-                        # transporters (floor movement).
-                        max_prep_time = np.maximum(max_prep_time,
-                                                   self.CalcAgentTravelTime(
-                                                       agent,
-                                                       self.shelf_id[0, 0, agent_loc],
-                                                       0))
-
-                    # Add the contribution of this agent to the response time for location (r, f, c)
-                    self.rtm[r, f, c] += (agent_time_remaining + sequence[agent])
-
-            # In case the considered location (r, f, c) is occupied, we calculate the time required
-            # for outfeeding the item occupying this shelf, which includes the prepositioning to
-            # this shelf.
+                self.rtm[r, f, c] = self.CalcShelfAccessTime(shelf_id, infeed=True)
+            # Else, the shelf isn't occupied, so we can outfeed from this location.
             else:
-                # For each agent in the (reversed) sequence (since this is outfeed), calculate its
-                # contribution to the response time for location (r, f, c) and add it to the
-                # RTM(r, f, c).
-                for agent in reversed(list(sequence.keys())):
-                    busy_till = self.agent_busy_till[agent]
-                    agent_loc = self.agent_location[agent][busy_till]
+                self.rtm[r, f, c] = self.CalcShelfAccessTime(shelf_id, infeed=False)
 
-                    # Find out for how long the agent is busy, or if it's available immediately.
-                    agent_time_remaining = np.maximum(0, (busy_till - self.sim_time))
+    # def CalcRTM(self):
+    #     """
+    #     IMPORTANT: Make sure that between the last update of Warehouse.sim_time and the execution
+    #     of this function, no actions are scheduled and each agent's schedule (busy times) isn't
+    #     altered.
 
-                    # Calculate how long the agent would need for prepositioning from the location
-                    # it finished its last task at to floor or column component of the considered
-                    # (r, f, c) where an item is stored. Differentiate between 'vt' and 'sh_'.
-                    if agent == 'vt':
-                        # Find out if this agent needs more prepositioning time than previous ones.
-                        max_prep_time = np.maximum(max_prep_time,
-                                                   self.CalcAgentTravelTime(
-                                                       agent,
-                                                       self.shelf_id[0, agent_loc, 0],
-                                                       self.shelf_id[r, f, c]))
-                    else:
-                        # Same as above, but for shuttles (column movement) instead of vertical
-                        # transporters (floor movement).
-                        max_prep_time = np.maximum(max_prep_time,
-                                                   self.CalcAgentTravelTime(
-                                                       agent,
-                                                       self.shelf_id[0, 0, agent_loc],
-                                                       self.shelf_id[r, f, c]))
+    #     Calculate a new Response Time Matrix.  for each possible request given the current warehouse
+    #     state. The prepositioning time for each location is included in the calculation. Based on
+    #     whether a location (r, f, c) is occupied or not, the response time is calculated as a
+    #     retrieval or a storage operation.
 
-                    # Add the contribution of this agent to the response time for location (r, f, c)
-                    self.rtm[r, f, c] += (agent_time_remaining + sequence[agent])
+    #     Return None.
+    #     """
 
-            # Finally, after each agent's contribution has been added, also add the maximum
-            # prepositioning time to the response time for this location. This can be done
-            # irrespective of whether infeed or outfeed response time was calculated.
-            self.rtm[r, f, c] += max_prep_time
+    #     # Archive the previous RTM in a shift registry.
+    #     self.rtm_history.insert(0, self.rtm)
+
+    #     # Pop the oldest stored RTM if the shift registry's length exceeds the specified length.
+    #     if len(self.rtm_history) >= self.num_historical_rtms:
+    #         self.rtm_history.pop(-1)
+
+    #     # Reset the current RTM.
+    #     self.rtm = np.zeros_like(self.rtm)
+
+    #     # For each shelf in the warehouse, calculate the response time.
+    #     for i in range(0, self.num_locs):
+    #         # Get the row, floor and column coordinates for shelf i.
+    #         (r, f, c) = self.shelf_rfc[i]
+
+    #         # Get the shelf access sequence for shelf i, e.g. the agents involved in accessing this
+    #         # shelf. Remember, the sequence must be reversed for outfeed response time calculation.
+    #         # (reversing does not really matter but it keeps you sane if you do it consistently)
+    #         sequence = self.shelf_access_sequence[i]
+
+    #         # Keep track of the longest prepositioning time for this sequence's agents. Only the
+    #         # longest will be added to the final RTM, since every agent with a shorter
+    #         # prepositioning time will already be done with prepositioning itself.
+    #         max_prep_time = 0.0
+
+    #         # In case the considered location (r, f, c) is not occupied, i.e. a possible infeed
+    #         # location, we calculate the time required for infeeding an item to this shelf,
+    #         # including the prepositioning of the agents to their default infeed location (0, 0, 0).
+    #         if ~self.shelf_occupied[r, f, c]:
+    #             for agent in list(sequence.keys()):
+    #                 busy_till = self.agent_busy_till[agent]
+    #                 agent_loc = self.agent_location[agent][busy_till]
+
+    #                 # Find out for how long the agent is busy, or if it's available immediately.
+    #                 agent_time_remaining = np.maximum(0, (busy_till - self.sim_time))
+
+    #                 # Calculate how long the agent would need for prepositioning from the location
+    #                 # it finished its last task at to the default infeed location for this agent.
+    #                 # Differentiate between 'vt' and 'sh_'. Note that the (r, f, c) of shelf_id[0]
+    #                 # is (0, 0, 0), it is not important that shuttles occupy different floors here.
+    #                 if agent == 'vt':
+    #                     # Find out if this agent needs more prepositioning time than previous ones.
+    #                     max_prep_time = np.maximum(max_prep_time,
+    #                                                self.CalcAgentTravelTime(
+    #                                                    agent,
+    #                                                    self.shelf_id[0, agent_loc, 0],
+    #                                                    0))
+    #                 else:
+    #                     # Same as above, but for shuttles (column movement) instead of vertical
+    #                     # transporters (floor movement).
+    #                     max_prep_time = np.maximum(max_prep_time,
+    #                                                self.CalcAgentTravelTime(
+    #                                                    agent,
+    #                                                    self.shelf_id[0, 0, agent_loc],
+    #                                                    0))
+
+    #                 # Add the contribution of this agent to the response time for location (r, f, c)
+    #                 self.rtm[r, f, c] += (agent_time_remaining + sequence[agent])
+
+    #         # In case the considered location (r, f, c) is occupied, we calculate the time required
+    #         # for outfeeding the item occupying this shelf, which includes the prepositioning to
+    #         # this shelf.
+    #         else:
+    #             # For each agent in the (reversed) sequence (since this is outfeed), calculate its
+    #             # contribution to the response time for location (r, f, c) and add it to the
+    #             # RTM(r, f, c).
+    #             for agent in reversed(list(sequence.keys())):
+    #                 busy_till = self.agent_busy_till[agent]
+    #                 agent_loc = self.agent_location[agent][busy_till]
+
+    #                 # Find out for how long the agent is busy, or if it's available immediately.
+    #                 agent_time_remaining = np.maximum(0, (busy_till - self.sim_time))
+
+    #                 # Calculate how long the agent would need for prepositioning from the location
+    #                 # it finished its last task at to floor or column component of the considered
+    #                 # (r, f, c) where an item is stored. Differentiate between 'vt' and 'sh_'.
+    #                 if agent == 'vt':
+    #                     # Find out if this agent needs more prepositioning time than previous ones.
+    #                     max_prep_time = np.maximum(max_prep_time,
+    #                                                self.CalcAgentTravelTime(
+    #                                                    agent,
+    #                                                    self.shelf_id[0, agent_loc, 0],
+    #                                                    self.shelf_id[r, f, c]))
+    #                 else:
+    #                     # Same as above, but for shuttles (column movement) instead of vertical
+    #                     # transporters (floor movement).
+    #                     max_prep_time = np.maximum(max_prep_time,
+    #                                                self.CalcAgentTravelTime(
+    #                                                    agent,
+    #                                                    self.shelf_id[0, 0, agent_loc],
+    #                                                    self.shelf_id[r, f, c]))
+
+    #                 # Add the contribution of this agent to the response time for location (r, f, c)
+    #                 self.rtm[r, f, c] += (agent_time_remaining + sequence[agent])
+
+    #         # Finally, after each agent's contribution has been added, also add the maximum
+    #         # prepositioning time to the response time for this location. This can be done
+    #         # irrespective of whether infeed or outfeed response time was calculated.
+    #         self.rtm[r, f, c] += max_prep_time
 
     def Get_RTM(self, rfc=None):
         """Return the Response Time Matrix (RTM), or an entry from the RTM."""
@@ -315,7 +350,7 @@ class Warehouse():
         """Print the correctly oriented response time matrix."""
         print(np.flip(self.rtm, axis=1))
 
-    def ReadyTransporters(self, selected_shelf_id, infeed=True):
+    def ReadyTransporters(self, shelf_id, infeed=True):
         """
 
         Given the ID of a shelf to be accessed and the type of operation, move
@@ -325,55 +360,46 @@ class Warehouse():
         Parameters.
 
         ----------
-        selected_shelf_id : int
+        shelf_id : int
             ID of the shelf to be accessed.
         infeed : bool, optional
             Whether the coming order is infeed or outfeed. The default is True.
 
-
-        Return None.
-
-        -------
-        
-
         """
         # Get all the agents involved in accessing the selected shelf.
-        sequence = self.shelf_access_sequence[selected_shelf_id]
+        sequence = self.shelf_access_sequence[shelf_id]
 
         # If infeed: move all involved agents to position 0.
         if infeed:
             for agent in sequence.keys():
                 # Calculate time necessary for prepositioning agent
                 agent_preposit_time = self.CalcAgentTravelTime(
-                    agent,
-                    self.agent_location[agent][self.agent_busy_till[agent]],
-                    0)
+                    agent, self.agent_location[agent][self.agent_busy_till[agent]], 0)
 
                 # Calculate when agent is done with prepositioning
                 new_busy_time = np.maximum(
-                    self.sim_time,
-                    self.agent_busy_till[agent]) + agent_preposit_time
+                    self.sim_time, self.agent_busy_till[agent]) + agent_preposit_time
 
                 # Update agent's busy time
                 self.agent_busy_till[agent] = new_busy_time
         # If outfeed: move all involved agents to the selected location
         else:
             for agent in sequence.keys():
+                # Calculate time necessary for prepositioning agent
                 agent_preposit_time = self.CalcAgentTravelTime(
-                    agent,
-                    self.agent_location[agent][self.agent_busy_till[agent]],
-                    selected_shelf_id)
+                    agent, self.agent_location[agent][self.agent_busy_till[agent]], shelf_id)
 
                 new_busy_time = np.maximum(
-                    self.sim_time,
-                    self.agent_busy_till[agent]) + agent_preposit_time
+                    self.sim_time, self.agent_busy_till[agent]) + agent_preposit_time
 
                 self.agent_busy_till[agent] = new_busy_time
 
     def CalcAgentTravelTime(self, agent, from_id, to_id) -> float:
         """
+        Calculate the time required by an agent from traveling from point A to
+        point B.
 
-        Parameters.
+        Parameters:
 
         ----------
         agent : str
@@ -383,12 +409,8 @@ class Warehouse():
         to_id : int
             The ID of the target location
 
-
+        ----------
         Returns travel time.
-
-        -------
-        Calculate the time required by an agent from traveling from point A to
-        point B.
 
         """
         if agent != 'vt':
@@ -400,10 +422,12 @@ class Warehouse():
             _, f_target, _ = self.shelf_rfc[to_id]
             return abs(f_origin - f_target) * self.vt_floor_travel_time
 
-    def ProcessOrder(self, infeed, selected_shelf_id=None, rfc=None):
+    def ProcessAction(self, infeed, selected_shelf_id=None, rfc=None):
         """
+        Perform an infeed/outfeed action. Used to be two functions 'Infeed' and
+        'Outfeed' but this seemed neater.
 
-        Parameters.
+        Parameters:
 
         ----------
         infeed : bool
@@ -413,12 +437,8 @@ class Warehouse():
         rfc : 3-tuple
             Tuple containing the row, floor and column of the selected shelf.
 
-
+        ----------
         Returns None.
-
-        -------
-        Perform an infeed/outfeed order. Used to be two functions 'Infeed' and
-        'Outfeed' but this seemed neater.
 
         """
         if selected_shelf_id is None and rfc is None:
@@ -438,38 +458,40 @@ class Warehouse():
             raise Exception("The warehouse is fully filled, can't infeed!")
         if not infeed and not self.shelf_occupied.any():
             raise Exception("Warehouse is empty, no items to outfeed!")
-            
 
+        # Preposition the involved transporters.
         self.ReadyTransporters(selected_shelf_id, infeed)
 
-        if infeed:
-            sequence = self.shelf_access_sequence[selected_shelf_id]
-        else:
-            sequence = reversed(self.shelf_access_sequence[selected_shelf_id])
+        # Get the shelf access sequence for given shelf.
+        sequence = self.shelf_access_sequence[selected_shelf_id]
 
-        # TODO: figure out how to update the sim_time in the meantime...
-        # TODO: update the sim time once a new order comes in.
+        # The sequence must be reversed for outfeed response time calculation.
+        agents = sequence.keys() if infeed else reversed(list(sequence.keys()))
+        pth = (0, selected_shelf_id) if infeed else (selected_shelf_id, 0)
+
+        # Initially set the action time (when it finishes) to be the same as the simulation time.
         action_time = self.sim_time
-        for agent in sequence.keys():
-            if infeed:
-                agent_travel_time = self.CalcAgentTravelTime(
-                    agent,
-                    0,  # Can use 0 here, since its rfc is (0, 0, 0)
-                    selected_shelf_id)
-            else:
-                agent_travel_time = self.CalcAgentTravelTime(
-                    agent,
-                    selected_shelf_id,
-                    0)
+
+        # Add each agent's contribution to the total action time.
+        for agent in agents:
+            # Calculate the agent travel time.
+            agent_travel_time = self.CalcAgentTravelTime(agent, pth[0], pth[1])
+
+            # Update the time needed for executing the complete storage/retrieval action
             action_time = np.maximum(
                 action_time, self.agent_busy_till[agent]) + agent_travel_time
 
+            # Set the new busy time of this agent.
             self.agent_busy_till[agent] = action_time
+
+            # Set the agent's location at the end of this action. Note that action_time here relates
+            # to each agent individually, and not to the total action time. Otherwise the involved
+            # agents would all be "busy" doing nothing after they finish their part in the action.
             if infeed:
-                if agent != 'vt':
-                    self.agent_location[agent][action_time] = c
-                else:
+                if agent == 'vt':
                     self.agent_location[agent][action_time] = f
+                else:
+                    self.agent_location[agent][action_time] = c
             else:
                 self.agent_location[agent][action_time] = 0
 
@@ -477,6 +499,7 @@ class Warehouse():
 
     def Infeed(self, selected_shelf_id=None, rfc=None):
         """
+        REDUNDANT: use Warehouse.ProcessAction
 
 
         Return.
@@ -574,17 +597,47 @@ class Warehouse():
     |-------------------------------------------------------------------------|
     """
 
-    def GetRandomShelfId(self, occupied=True):
+    def GetRandomShelfId(self, infeed=True) -> int:
         """Return a shelf ID randomly picked from the available IDs."""
-        # Pick an occupied shelf's ID.
-        if occupied:
-            [r, f, c] = np.random.choice(
-                np.where(self.shelf_occupied == 1)).tolist()
-        # Pick an unoccupied shelf's ID.
-        else:
+        # Pick a random location you can infeed to.
+        if infeed:
             [r, f, c] = np.random.choice(
                 np.where(self.shelf_occupied == 0)).tolist()
+        # Pick a random location you can outfeed from.
+        else:
+            [r, f, c] = np.random.choice(
+                np.where(self.shelf_occupied == 1)).tolist()
         return self.shelf_id[r, f, c]
+
+    def GetGreedyShelfId(self, infeed=True) -> int:
+        """Return a shelf ID that has the lowest response time."""
+        candidate_ids = self.GetIds(want_free_ids=infeed)
+
+        # print(candidate_ids)
+        min_rt = float('inf')
+        shelf_id = None
+
+        for c_id in candidate_ids:
+            (r, f, c) = self.shelf_rfc[c_id]
+            if self.rtm[r, f, c] >= min_rt:
+                continue
+            else:
+                min_rt = self.rtm[r, f, c]
+                shelf_id = c_id
+        return shelf_id
+
+    def GetEpsGreedyShelfId(self, infeed=True, eps=0.1) -> int:
+        """Return a shelf ID that has the lowest response time with prob. (1-eps), else return a
+        random ID."""
+        if infeed is True:
+            candidate_ids = np.where(self.shelf_occupied != 1)[0].tolist()
+        else:
+            candidate_ids = np.where(self.shelf_occupied == 1)[0].tolist()
+
+        if np.random.uniform() <= eps:
+            return np.random.choice(candidate_ids)
+        else:
+            return self.GetGreedyShelfId(infeed)
 
     def SetRandomOccupancy(self):
         """Randomly sets every shelf to either True or False."""
@@ -593,6 +646,18 @@ class Warehouse():
             np.asarray(random_bools, dtype=bool),
             (self.dims[0], self.dims[1], self.dims[2]))
         self.shelf_occupied = random_array
+
+    def GetIds(self, want_free_ids=True) -> list:
+        """Get the IDs of shelves, occupied or free."""
+        occ_ids = []
+        free_ids = []
+        for _id in range(self.num_locs):
+            (r, f, c) = self.shelf_rfc[_id]
+            if self.shelf_occupied[r, f, c]:
+                occ_ids.append(_id)
+            else:
+                free_ids.append(_id)
+        return free_ids if want_free_ids else occ_ids
 
     # def get_next_order_id(self, prioritize_outfeed=True):
     #     """Get an order from the order system."""
@@ -609,7 +674,7 @@ def main():
     print(test_wh.agent_location)
 
     # Infeed an item
-    test_wh.ProcessOrder(infeed=True, selected_shelf_id=item_id_a)
+    test_wh.ProcessAction(infeed=True, selected_shelf_id=item_id_a)
     # Calculate the new response time matrix given the new infeed order
     test_wh.CalcRTM()
     # Print it
@@ -619,7 +684,7 @@ def main():
     test_wh.sim_time += 1
     print(test_wh.agent_location)
 
-    test_wh.ProcessOrder(infeed=True, selected_shelf_id=item_id_b)
+    test_wh.ProcessAction(infeed=True, selected_shelf_id=item_id_b)
     test_wh.CalcRTM()
     test_wh.PrintRTM()
     # test_wh.sim_time += test_wh.Get_RTM(test_wh.shelf_rfc[item_id_b])
@@ -628,6 +693,8 @@ def main():
     test_wh.CalcRTM()
     test_wh.PrintRTM()
     print(test_wh.agent_location)
+    print(test_wh.shelf_occupied)
+    print(test_wh.GetGreedyShelfId(infeed=False))
 
 
 if __name__ == '__main__':
