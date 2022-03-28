@@ -12,6 +12,7 @@ import copy
 
 class Net(nn.Module):
     """policy-value network module"""
+
     def __init__(self, xDim, yDim, stateNume, posNum, actionNum):
         super(Net, self).__init__()
         self.XNum = xDim
@@ -49,7 +50,7 @@ class Net(nn.Module):
         # action policy layers
         # x_act = F.relu(self.act_conv1(x))
         x_act = x.view(-1, self.StateNum * self.posNum)
-        x_act = F.softmax(self.act_fc1(x_act), dim = -1)
+        x_act = F.softmax(self.act_fc1(x_act), dim=-1)
 
         # state value layers
         # x_val = F.relu(self.val_conv1(x))
@@ -64,6 +65,7 @@ class Net(nn.Module):
 class DeeperNet(nn.Module):
     """"一个更深的神经网络"""
     """policy-value network module"""
+
     def __init__(self, xDim, yDim, stateNume, posNum, actionNum):
         super(DeeperNet, self).__init__()
         self.XNum = xDim
@@ -100,7 +102,7 @@ class DeeperNet(nn.Module):
         # action policy layers
         # x_act = F.relu(self.act_conv1(x))
         x_act = x.view(-1, self.StateNum * self.posNum)
-        x_act = F.softmax(self.act_fc1(x_act), dim = -1)
+        x_act = F.softmax(self.act_fc1(x_act), dim=-1)
 
         # state value layers
         # x_val = F.relu(self.val_conv1(x))
@@ -115,6 +117,7 @@ class DeeperNet(nn.Module):
 class DeeperValAct_net(nn.Module):
     """"一个更深的神经网络"""
     """policy-value network module"""
+
     def __init__(self, xDim, yDim, stateNume, posNum, actionNum):
         super(DeeperValAct_net, self).__init__()
         self.XNum = xDim
@@ -150,7 +153,7 @@ class DeeperValAct_net(nn.Module):
         # action policy layers
         x_act = F.relu(self.act_conv1(x))
         x_act = x_act.view(-1, self.StateNum * self.posNum)
-        x_act = F.softmax(self.act_fc1(x_act), dim = -1)
+        x_act = F.softmax(self.act_fc1(x_act), dim=-1)
 
         # state value layers
         x_val = F.relu(self.val_conv1(x))
@@ -165,6 +168,7 @@ class DeeperValAct_net(nn.Module):
 class DeepestNet(nn.Module):
     """"一个更深的神经网络"""
     """policy-value network module"""
+
     def __init__(self, xDim, yDim, stateNume, posNum, actionNum):
         super(DeeperNet, self).__init__()
         self.XNum = xDim
@@ -201,7 +205,7 @@ class DeepestNet(nn.Module):
         # action policy layers
         x_act = F.relu(self.act_conv1(x))
         x_act = x_act.view(-1, self.StateNum * self.posNum)
-        x_act = F.softmax(self.act_fc1(x_act), dim = -1)
+        x_act = F.softmax(self.act_fc1(x_act), dim=-1)
 
         # state value layers
         x_val = F.relu(self.val_conv1(x))
@@ -246,7 +250,8 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
                 # nn.init.kaiming_normal_(m.weight.data, mode='fan_out')
                 nn.init.kaiming_normal_(m.weight.data, mode='fan_in', nonlinearity='relu')
 
-        self.optimizer = optim.Adam(self.policy_value_net.parameters(), lr=3e-3, weight_decay=self.l2_const)
+        self.optimizer = optim.Adam(self.policy_value_net.parameters(),
+                                    lr=3e-3, weight_decay=self.l2_const)
         # self.optimizer = optim.Adam(self.policy_value_net.parameters(), lr=3e-3, betas=(0.9, 0.999), eps=1e-08)
 
         # if model_file:
@@ -259,10 +264,19 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         self.lossValue = []
 
     def select_action(self, state, availablePos):
+        # print(np.shape(state))
+        # print(state)
+        # state = np.reshape(state, (4, 12, 8))
         state = torch.from_numpy(state).float().unsqueeze(0)
+
         # print("state value in Array(input to the neural network):", state)
+        """From looking at nn.Module, if no hooks are specified and you input an argument like this,
+        it defaults to the function "forward", which is specified in DeeperValAct_net class.
+        probs is the result of a softmax layer: the head of the actor network. state_value is the
+        output of a linear layer of size 64: the head of the critic network."""
+        # print(state.shape)
         probs, state_value = self.policy_value_net(state)
-        probs_aaaaa = copy.deepcopy(probs.data[0]) # TODO: optimize deepcopy method
+        probs_aaaaa = copy.deepcopy(probs.data[0])  # TODO: optimize deepcopy method
         # print("probs_before:", probs)
         max_prob = 0
         max_prob_index = 0
@@ -270,16 +284,16 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
             # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
             #     probs.data[0][temp_i] = 1e-8
             if probs.data[0][temp_i] == 0 or np.isnan(probs.data[0][temp_i]):
-                probs.data[0][temp_i] = 1.0 / 96.0 # should sum to 1 and avoid nan error.
+                probs.data[0][temp_i] = 1.0 / 96.0  # should sum to 1 and avoid nan error.
             if availablePos[temp_i] == 0:
-                probs.data[0][temp_i] = 0
+                probs.data[0][temp_i] = 1.0 / 96.0
 
-            if probs.data[0][temp_i] >= max_prob: # Use numpy.argmax() here
+            if probs.data[0][temp_i] >= max_prob:  # Use numpy.argmax() here
                 max_prob = probs.data[0][temp_i]
                 max_prob_index = temp_i
 
         # if max_prob <= 1e-8:  # Prevent the appearance of nan, indeterminate
-        #     probs.data[0][max_prob_index] = 1e-8 
+        #     probs.data[0][max_prob_index] = 1e-8
 
         # create a categorical distribution over the list of probabilities of actions
         m = Categorical(probs)
@@ -290,35 +304,44 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         '''
           What happens here does not make sense given the answer to question 3
           I sent Lei. He said the action with the maximum probability is chosen
-          although here I get the idea that an action is sampled randomly from 
-          the categorical distribution. This doesn't make sense, it's 
+          although here I get the idea that an action is sampled randomly from
+          the categorical distribution. This doesn't make sense, it's
           contradictory.
+          
+          The next bit of code deals with the availability of storage locations. It tries up to 10
+          times to sample an available location. If that is unfruitful, the warehouse is "filled"...
+          This is stupid, you don't know for certain it's full this way!
         '''
 
-        try:
-            action = m.sample()
-            temp_counter = 0
-            while True:
-                if temp_counter >= 10:
-                    print("temp_i:",temp_i)
-                    print("action:", action)
-                    print("state:", state)
-                    print("availablePos:", availablePos)
-                    print("probs:", probs)
-                    print("probs_aaaaa:", probs_aaaaa)
-                    print("state_value:", state_value)
-                    return
-                if availablePos[action] == 0:
-                    action = m.sample()
-                    print(temp_counter)
-                    temp_counter = temp_counter+1
-                else:
-                    break
-        except:
-            print("state:", state)
-            print("availablePos:", availablePos)
-            print("probs:", probs)
-            print("state_value:", state_value)
+        # try:
+        #     action = m.sample()
+        #     # print(f"Action: {action.item()}")
+        #     temp_counter = 0
+        #     while True:
+        #         if temp_counter >= 10:
+        #             print("temp_i:", temp_i)
+        #             print("action:", action)
+        #             print("state:", state)
+        #             print("availablePos:", availablePos)
+        #             print("probs:", probs)
+        #             print("probs_aaaaa:", probs_aaaaa)
+        #             print("state_value:", state_value)
+        #             return
+        #         # If the selected action wants to store at an unavailable location: resample.
+        #         # If that happens more than 10 times (see above), return and go to except.
+        #         if availablePos[action] == 0:
+        #             action = m.sample()
+        #             print(temp_counter)
+        #             temp_counter = temp_counter+1
+        #         else:
+        #             # If an available location was sampled in fewer than 10 attempts, break while.
+        #             break
+        # except:
+        #     print("state:", state)
+        #     print("availablePos:", availablePos)
+        #     print("probs:", probs)
+        #     print("state_value:", state_value)
+        action = m.sample()
 
         # save to action buffer
         SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
@@ -406,7 +429,6 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         # 获取并保存模型
         net_params = self.policy_value_net.state_dict()
         return net_params
-
 
     def save_model(self, model_file):
         # 获取并保存模型
