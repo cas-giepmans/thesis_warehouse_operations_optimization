@@ -1,27 +1,22 @@
-"""
-train PlantSimulation model
-@author: stone
-"""
 import sys
 import random
 import matplotlib.pyplot as plt
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
-from newPlantGame import PlantGame_AVSRS as plantGame
+# from newPlantGame import PlantGame_AVSRS as plantGame
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
 from datetime import datetime
 
 
 class TrainGameModel():
-    def __init__(self, wh_sim):
-        # 创建神经网络
-        self.wh_sim = wh()
+    def __init__(self, wh):
+        self.wh_sim = wh
         self.neural_network = trainNet(
-            wh_sim.num_cols,
-            wh_sim.num_rows * wh_sim.num_floors,
-            wh_sim.num_hist_rtms,  # number of states (?)
-            wh_sim.num_locs,  # Number of storage locations.
-            wh_sim.ActionNum)
+            wh.num_cols,
+            wh.num_rows * wh.num_floors,
+            wh.num_historical_rtms + 1,  # number of states (?)
+            wh.num_locs,  # Number of storage locations.
+            wh.num_locs)
         dt = datetime.now()  # 创建一个datetime类对象
         self.startTime = dt.strftime('%y-%m-%d %I:%M:%S %p')
         self.endTime = 0
@@ -33,52 +28,90 @@ class TrainGameModel():
     def run_training(self, train_episodes):
         all_episode_reward = []
         for i_episode in range(train_episodes):
-            wh_state = self.wh_sim.init_state()
+            wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
             # Fill the RTM history registry
-            for i in wh_state.num_hist_rtms:
+            for i in range(self.wh_sim.num_historical_rtms - 1):
+                print("added an rtm: ", i)
                 self.wh_sim.CalcRTM()
 
             episode_reward = 0
             all_action = []
             all_reward = []
+            infeed_count = 0
+            outfeed_count = 0
 
             while True:
-                # TODO: Increase the sim_time by some amount here.
+                # Increase the sim_time by some amount here.
+                # TODO: set it to be larger than num_floors * shortest response time.
+                self.wh_sim.sim_time += 10.0
 
                 # Get the occupancy (and inverse occupancy).
-                occupied_locs = self.wh_sim.shelf_occupied
-                free_locs = ~occupied_locs
+                occupied_locs = np.reshape(self.wh_sim.shelf_occupied,
+                                           (12, 8)).flatten(order='C').tolist()
+                free_locs = np.reshape(~self.wh_sim.shelf_occupied, (12, 8)
+                                       ).flatten(order='C').tolist()
+                # Store the number of free and occupied locations.
+                free_and_occ = (len(free_locs), len(occupied_locs))
 
                 # Generate a new order.
-                self.wh_sim.order_system.GenerateNewOrder(order_type="random",
-                                                          item_type=1,
-                                                          current_time=self.wh_sim.sim_time)
+                self.wh_sim.order_system.GenerateNewOrder(
+                    order_type="random", item_type=1, current_time=self.wh_sim.sim_time)
 
-                # Pick an order from one of the queues.
-                next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(False)
+                # Pick an order from one of the queues. Also, check if order is possible given
+                # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
+                try:
+                    next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
+                        self.wh_sim.sim_time, free_and_occ, False)
+                    if next_order["order_type"] == "infeed":
+                        infeed = True
+                    elif next_order["order_type"] == "outfeed":
+                        infeed = False
+                except RuntimeError:
+                    # Training should continue, but this is unwanted behavior.
+                    print(f"The episode terminated prematurely because of order {next_order_id}.")
+                    episode_reward = -1000
+                    self.neural_network.add_reward(-1000)
+                    break
 
                 # Calculate a new RTM.
                 self.wh_sim.CalcRTM()
 
                 # Prepare the state.
-                wh_state = self.wh_sim.GetState()
+                wh_state = self.wh_sim.GetState(infeed)
+                # print(wh_state)
+                self.wh_sim.PrintOccupancy()
 
                 # Select an action with the NN based on the state, order type and occupancy.
                 # TODO: Make sure the selected action is a usable shelf_id!
-                if next_order["order_type"] == "infeed":
+                if infeed:
                     action = self.neural_network.select_action(np.array(wh_state), free_locs)
-                elif next_order["order_type"] == "outfeed":
+                    infeed_count += 1
+                    print(free_locs[action])
+                    print(action)
+                elif not infeed:
                     action = self.neural_network.select_action(np.array(wh_state), occupied_locs)
+                    outfeed_count += 1
+                    print(action)
                 else:
                     raise Exception(f"""The order type of order {next_order_id}
                                     ({next_order["order_type"]}) is wrong! Time:
                                     {self.wh_sim.sim_time}.""")
 
+                # Get a random shelf ID (for testing).
+                # action = self.wh_sim.GetRandomShelfId(infeed=infeed)
+
                 all_action.append(action)
+                # print(action)
                 # Have the selected action get executed by the warehouse sim.
-                wh_state, this_reward, is_end = self.wh_sim.do_action(action)
-                self.neural_network.add_reward(this_reward)
-                episode_reward += this_reward
+                action_reward, is_end = self.wh_sim.ProcessAction(infeed, selected_shelf_id=action)
+
+                # Finish and log the executed order.
+                finish_time = action_reward + self.wh_sim.sim_time
+                self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
+
+                # Log the rewards.
+                self.neural_network.add_reward(action_reward)
+                episode_reward += action_reward
 
                 if is_end:
                     break
@@ -93,28 +126,37 @@ class TrainGameModel():
             # Perform a training step for the neural network.
             self.neural_network.train_step(self.lr)
 
-            # Reset the warehouse instance for the next training episode.
-            # self.wh_sim.dolastAction()
+            # Append the episode's reward to the list of all rewards.
             all_episode_reward.append(episode_reward)
 
+            # Print the order register for inspection.
+            in_dens, out_dens = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=True)
+
+            # Print occupancy matrix.
+            # self.wh_sim.PrintOccupancy()
+
             # Print episode training meta info.
-            # print(f"Finished episode {i_episode}/4000")
-            # print("i_episode:", i_episode,
-            #       "episode_reward", episode_reward,
-            #       "max_reward:", max(all_episode_reward),
-            #       "all_action:", all_action,
-            #       "thisTime", self.wh_sim.episodeTimes[
-            #           len(self.wh_sim.episodeTimes)-1],
-            #       "minTime:", min(self.wh_sim.episodeTimes),
-            #       "maxTime:", max(self.wh_sim.episodeTimes),
-            #       "lr", self.lr)
+            print(f"Finished ep. {i_episode + 1}/{train_episodes}.")
+            print(f"""Episode number: {i_episode}
+                      \rEpisode time: {episode_reward}
+                      \rMax reward so far: {max(all_episode_reward)}
+                      \rLearning rate: {self.lr}
+                      \rInfeed orders: {infeed_count}
+                      \rOutfeed orders: {outfeed_count}
+                      \r""")
 
         dt = datetime.now()  # 创建一个datetime类对象
         self.endTime = dt.strftime('%y-%m-%d %I:%M:%S %p')
         print("Start time", self.startTime, "End time", self.endTime)
+
+        # TODO: Write a function for exporting the order_register to a csv file. Would be good to
+        # see shelf access density.
+
         # Print the average episode time. Shorter is better.
         # print("Average episode time:", np.mean(self.wh_sim.episodeTimes), "Variance episode times:", np.var(self.wh_sim.episodeTimes), "Standard deviation episode times:", np.std(self.wh_sim.episodeTimes) )
         # self.drawResult(self.wh_sim.episodeTimes)
+        self.DrawAccessDensity(in_dens)
+        self.DrawAccessDensity(out_dens)
 
     def saveBestModel(self):
         # 根据总耗时最小的原则确定是否保存为新模型
@@ -122,6 +164,17 @@ class TrainGameModel():
             savePath = "./plantPolicy_" + str(self.wh_sim.XDim) + "_" + str(self.wh_sim.YDim) + "_" + str(
                 self.train_episodes) + ".model"
             self.neural_network.save_model(savePath)  # 保存模型
+
+    def DrawAccessDensity(self, density_matrix):
+        """Draw the access densities for shelves given infeed and outfeed order counts."""
+        dims = self.wh_sim.dims
+        density_matrix = np.reshape(density_matrix, (dims[0] * dims[1], dims[2]))
+
+        plt.figure()
+        plt.imshow(density_matrix, cmap="CMRmap")
+        plt.colorbar()
+        plt.show()
+        # plt.imshow(outfeed_density, cmap="CMRmap")
 
     def drawResult(self, all_episode_reward):
         # 画图
@@ -156,13 +209,13 @@ def main():
     num_rows = 2
     num_floors = 6
     num_cols = 8
-    episode_length = 1000
-    num_hist_rtms = 1
+    episode_length = 100
+    num_hist_rtms = 3
     wh_sim = wh(num_rows,
                 num_floors,
                 num_cols,
                 episode_length,
-                num_hist_rtms)
+                num_hist_rtms=num_hist_rtms)
 
     train_episodes = 1  # 不建议该值超过5000
     train_plant_model = TrainGameModel(wh_sim)
