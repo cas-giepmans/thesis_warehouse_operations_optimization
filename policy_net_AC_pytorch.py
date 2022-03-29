@@ -276,27 +276,46 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         output of a linear layer of size 64: the head of the critic network."""
         # print(state.shape)
         probs, state_value = self.policy_value_net(state)
-        probs_aaaaa = copy.deepcopy(probs.data[0])  # TODO: optimize deepcopy method
+        # probs_aaaaa = copy.deepcopy(probs.data[0])
         # print("probs_before:", probs)
-        max_prob = 0
-        max_prob_index = 0
-        for temp_i in range(len(availablePos)):
-            # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
-            #     probs.data[0][temp_i] = 1e-8
-            if probs.data[0][temp_i] == 0 or np.isnan(probs.data[0][temp_i]):
-                probs.data[0][temp_i] = 1.0 / 96.0  # should sum to 1 and avoid nan error.
-            if availablePos[temp_i] == 0:
-                probs.data[0][temp_i] = 1.0 / 96.0
+        # max_prob = 0
+        # max_prob_index = 0
+        # for temp_i in range(len(availablePos)):
+        #     if availablePos[temp_i] is False:
+        #         probs.data[0][temp_i] = 0.0
+        #     # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
+        #     #     probs.data[0][temp_i] = 1e-8
+        #     if probs.data[0][temp_i] == 0 or np.isnan(probs.data[0][temp_i]):
+        #         # should sum to 1 and avoid nan error.
+        #         probs.data[0][temp_i] = 1.0 / self.actionNum
+        #     if availablePos[temp_i] is False:
+        #         probs.data[0][temp_i] = 0.0
 
-            if probs.data[0][temp_i] >= max_prob:  # Use numpy.argmax() here
-                max_prob = probs.data[0][temp_i]
-                max_prob_index = temp_i
+        #     if probs.data[0][temp_i] >= max_prob:  # Use numpy.argmax() here
+        #         max_prob = probs.data[0][temp_i]
+        #         max_prob_index = temp_i
+
+        # for label, p in enumerate(probs[0]):
+        #     if availablePos[label] is False:
+        #         probs[0][label] = 0.0
+        #     print(f'{label:2}: {100*probs[0][label]}%')
 
         # if max_prob <= 1e-8:  # Prevent the appearance of nan, indeterminate
         #     probs.data[0][max_prob_index] = 1e-8
 
         # create a categorical distribution over the list of probabilities of actions
         m = Categorical(probs)
+        # TODO: figure out how to sample an action such that the chosen action isn't illegal!
+        repeat_counter = 0
+        while True:
+            repeat_counter += 1
+            action = m.sample()
+            if availablePos[action.item()] is True:
+                break
+            elif repeat_counter >= 10000:
+                raise Exception("Couldn't find an action in 10000 steps.")
+            # else:
+            #     continue
 
         # m = Categorical(probs.clip_by_value(probs, 1e-8, 1.0))
 
@@ -305,9 +324,8 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
           What happens here does not make sense given the answer to question 3
           I sent Lei. He said the action with the maximum probability is chosen
           although here I get the idea that an action is sampled randomly from
-          the categorical distribution. This doesn't make sense, it's
-          contradictory.
-          
+          the categorical distribution.
+
           The next bit of code deals with the availability of storage locations. It tries up to 10
           times to sample an available location. If that is unfruitful, the warehouse is "filled"...
           This is stupid, you don't know for certain it's full this way!
@@ -341,7 +359,8 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         #     print("availablePos:", availablePos)
         #     print("probs:", probs)
         #     print("state_value:", state_value)
-        action = m.sample()
+        # action = m.sample()
+        # print(m.probs)
 
         # save to action buffer
         SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
