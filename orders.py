@@ -80,6 +80,7 @@ class OrderSystem():
         print(f"Order {order_id} ({order_type}, item type {item_type}) generated and queued.")
 
     def QueueOrder(self, order_id):
+        """Queue an order that has just been generated."""
         order = self.order_register[order_id]
 
         if order["order_type"] == "infeed":
@@ -91,14 +92,38 @@ class OrderSystem():
         order["time_in_queue"] = 0.0
 
     def GetNextOrder(self, current_time, free_and_occ, prioritize_outfeed=True):
-        """Get the next order from one of the queues."""
+        """
+        Gets the next order from either the infeed or outfeed queue.
+
+        Parameters
+        ----------
+        current_time : float
+            The time at which the next order is requested. Should be current simulation time.
+        free_and_occ : tuple.
+            Contains the count of free and occupied shelves in the current warehouse state.
+        prioritize_outfeed : bool, optional
+            Whether outfeed should be prioritized over infeed. The default is True.
+
+        Raises
+        ------
+        RuntimeError
+            When the queues are empty or the warehouse is empty or full.
+
+        Returns
+        -------
+        next_order_id : int
+            The ID of the next order to be executed.
+        order : dict
+            The entry in the order_register that contains all the values of the order.
+
+        """
         # Check if queues are empty.
         infeed_queue_empty = False if self.infeed_queue.qsize() > 0 else True
         outfeed_queue_empty = False if self.outfeed_queue.qsize() > 0 else True
 
         # Catch the case where both queues are empty.
         if infeed_queue_empty and outfeed_queue_empty:
-            raise Error("""Both queues are empty.""")
+            raise RuntimeError("""Both queues are empty, can't get next order.""")
 
         # Catch the cases where you want to infeed into a full warehouse or outfeed from an
         # empty warehouse.
@@ -135,78 +160,39 @@ class OrderSystem():
 
         return next_order_id, self.order_register[next_order_id]
 
-    def ExecuteNextOrder(self, current_time, prioritize_outfeed=True):
-        """
-
-        Summary.
-        -------
-        This method schedules a new order for execution. It takes the next
-        item from either the infeed or outfeed order queue. It also logs the
-        time spend waiting in the queue.
-
-
-        Parameters
-        ----------
-        current_time : float
-            The current simulation time.
-        prioritize_outfeed : bool, optional
-            Whether outfeed orders have priority over infeed orders. The
-            default is True.
-
-        Raises
-        ------
-        Exception
-            When both order queues are empty.
-
-        Returns
-        -------
-        None.
-
-        """
-        # Before executing an order, update the warehouse's sim_time!
-
-        # Check if queues are empty.
-        infeed_queue_empty = False if self.infeed_queue.qsize() > 0 else True
-        outfeed_queue_empty = False if self.outfeed_queue.qsize() > 0 else True
-
-        # Catch the case where both queues are empty.
-        if infeed_queue_empty and outfeed_queue_empty:
-            raise Exception(f"""Both queues are empty, there's no need to call
-                            'ExecuteNextOrder' now at time {current_time}.""")
-
-        # If there's an outfeed prioritization (to prevent saturated warehouse)
-        if prioritize_outfeed:
-            if not outfeed_queue_empty:
-                next_order_id = self.outfeed_queue.get()
-            else:
-                if not infeed_queue_empty:
-                    next_order_id = self.infeed_queue.get()
-        # No prioritization is given, 50/50 chance for both (if both non-empty)
-        else:
-            if not outfeed_queue_empty and not infeed_queue_empty:
-                # Get random boolean.
-                decider = bool(random.getrandbits(1))
-                if decider is True:
-                    next_order_id = self.outfeed_queue.get()
-                else:
-                    next_order_id = self.infeed_queue.get()
-            elif not outfeed_queue_empty:
-                next_order_id = self.outfeed_queue.get()
-            elif not infeed_queue_empty:
-                next_order_id = self.infeed_queue.get()
-
-        self.order_register[next_order_id]["time_in_queue"] = current_time - \
-            self.order_register[next_order_id]["time_created"]
-        self.order_register[next_order_id]["in_queue"] = False
-        self.order_register[next_order_id]["time_start"] = current_time
-
-        return next_order_id
-
     def FinishOrder(self, order_id, shelf_id, finish_time):
         """Complete order, log time and set shelf_id (set None if outfeed)."""
         order = self.order_register[order_id]
         order["time_finish"] = finish_time
         order["shelf_id"] = shelf_id
+
+    def GetShelfAccessCounts(self) -> dict:
+        """Calculates and returns a dictionary filled with access counts for each shelf_id."""
+        infeed_counts = {}
+        outfeed_counts = {}
+
+        # For each order in the registry
+        for order_id in self.order_register.keys():
+            # Get the shelf ID that was accessed (either for infeed or outfeed).
+            shelf_id = self.order_register[order_id]['shelf_id']
+            if self.order_register[order_id]['order_type'] == 'infeed':
+                # Try to increase the counter of that shelf.
+                try:
+                    infeed_counts[shelf_id] += 1
+                # If we haven't seen this shelf yet, add it, set it's value to 1.
+                except KeyError:
+                    infeed_counts[shelf_id] = 1
+            elif self.order_register[order_id]['order_type'] == 'outfeed':
+                try:
+                    outfeed_counts[shelf_id] += 1
+                except KeyError:
+                    outfeed_counts[shelf_id] = 1
+            # This shouldn't happen, only other order_type is 'random' but that can't occur.
+            else:
+                raise Exception(f"""Order type ({self.order_register[order_id]['order_type']})
+                                \rwasn't expected!""")
+
+        return infeed_counts, outfeed_counts
 
     def PrintOrderQueues(self):
         for i in list(self.infeed_queue.queue):
