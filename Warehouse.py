@@ -409,8 +409,20 @@ class Warehouse():
         """Print the correctly oriented response time matrix."""
         print(np.flip(self.rtm, axis=1))
 
+    def PrintIdMatrix(self, print_it=True):
+        """Prints the warehouse with each shelf containing its shelf_id."""
+        id_matrix = np.zeros(self.dims, dtype=int)
+        for shelf_id in range(self.num_locs):
+            (r, f, c) = self.shelf_rfc[shelf_id]
+            id_matrix[r, f, c] = shelf_id
+        if print_it is True:
+            print(id_matrix)
+        else:
+            return id_matrix
+
     def PrintOccupancy(self):
         """Print the correctly oriented occupancy matrix."""
+
         print(np.flip(self.shelf_occupied, axis=1))
 
     def GetRandomShelfId(self, infeed=True) -> int:

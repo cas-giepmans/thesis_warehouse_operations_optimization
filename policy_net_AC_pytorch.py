@@ -5,9 +5,10 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
 from collections import namedtuple
-# from torch.autograd import Variable
+from torch.autograd import Variable
 import numpy as np
 import copy
+import warnings
 
 
 class Net(nn.Module):
@@ -264,103 +265,57 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         self.lossValue = []
 
     def select_action(self, state, availablePos):
-        # print(np.shape(state))
-        # print(state)
-        # state = np.reshape(state, (4, 12, 8))
         state = torch.from_numpy(state).float().unsqueeze(0)
-
         # print("state value in Array(input to the neural network):", state)
-        """From looking at nn.Module, if no hooks are specified and you input an argument like this,
-        it defaults to the function "forward", which is specified in DeeperValAct_net class.
-        probs is the result of a softmax layer: the head of the actor network. state_value is the
-        output of a linear layer of size 64: the head of the critic network."""
-        # print(state.shape)
         probs, state_value = self.policy_value_net(state)
-        # probs_aaaaa = copy.deepcopy(probs.data[0])
+        probs_aaaaa = copy.deepcopy(probs.data[0])
         # print("probs_before:", probs)
-        # max_prob = 0
-        # max_prob_index = 0
-        # for temp_i in range(len(availablePos)):
-        #     if availablePos[temp_i] is False:
-        #         probs.data[0][temp_i] = 0.0
-        #     # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
-        #     #     probs.data[0][temp_i] = 1e-8
-        #     if probs.data[0][temp_i] == 0 or np.isnan(probs.data[0][temp_i]):
-        #         # should sum to 1 and avoid nan error.
-        #         probs.data[0][temp_i] = 1.0 / self.actionNum
-        #     if availablePos[temp_i] is False:
-        #         probs.data[0][temp_i] = 0.0
+        max_prob = 0
+        max_prob_index = 0
+        for temp_i in range(len(availablePos)):
+            # if probs.data[0][temp_i] <= 1e-8:  # 防止出现nan，不确定
+            #     probs.data[0][temp_i] = 1e-8
+            if availablePos[temp_i] == 0:
+                probs.data[0][temp_i] = 0
 
-        #     if probs.data[0][temp_i] >= max_prob:  # Use numpy.argmax() here
-        #         max_prob = probs.data[0][temp_i]
-        #         max_prob_index = temp_i
+            if probs.data[0][temp_i] >= max_prob:
+                max_prob = probs.data[0][temp_i]
+                max_prob_index = temp_i
 
-        # for label, p in enumerate(probs[0]):
-        #     if availablePos[label] is False:
-        #         probs[0][label] = 0.0
-        #     print(f'{label:2}: {100*probs[0][label]}%')
-
-        # if max_prob <= 1e-8:  # Prevent the appearance of nan, indeterminate
-        #     probs.data[0][max_prob_index] = 1e-8
+        if max_prob <= 1e-8:  # 防止出现nan，不确定
+            probs.data[0][max_prob_index] = 1e-8
 
         # create a categorical distribution over the list of probabilities of actions
         m = Categorical(probs)
-        # TODO: figure out how to sample an action such that the chosen action isn't illegal!
-        repeat_counter = 0
-        while True:
-            repeat_counter += 1
-            action = m.sample()
-            if availablePos[action.item()] is True:
-                break
-            elif repeat_counter >= 10000:
-                raise Exception("Couldn't find an action in 10000 steps.")
-            # else:
-            #     continue
 
         # m = Categorical(probs.clip_by_value(probs, 1e-8, 1.0))
 
         # and sample an action using the distribution
-        '''
-          What happens here does not make sense given the answer to question 3
-          I sent Lei. He said the action with the maximum probability is chosen
-          although here I get the idea that an action is sampled randomly from
-          the categorical distribution.
 
-          The next bit of code deals with the availability of storage locations. It tries up to 10
-          times to sample an available location. If that is unfruitful, the warehouse is "filled"...
-          This is stupid, you don't know for certain it's full this way!
-        '''
-
-        # try:
-        #     action = m.sample()
-        #     # print(f"Action: {action.item()}")
-        #     temp_counter = 0
-        #     while True:
-        #         if temp_counter >= 10:
-        #             print("temp_i:", temp_i)
-        #             print("action:", action)
-        #             print("state:", state)
-        #             print("availablePos:", availablePos)
-        #             print("probs:", probs)
-        #             print("probs_aaaaa:", probs_aaaaa)
-        #             print("state_value:", state_value)
-        #             return
-        #         # If the selected action wants to store at an unavailable location: resample.
-        #         # If that happens more than 10 times (see above), return and go to except.
-        #         if availablePos[action] == 0:
-        #             action = m.sample()
-        #             print(temp_counter)
-        #             temp_counter = temp_counter+1
-        #         else:
-        #             # If an available location was sampled in fewer than 10 attempts, break while.
-        #             break
-        # except:
-        #     print("state:", state)
-        #     print("availablePos:", availablePos)
-        #     print("probs:", probs)
-        #     print("state_value:", state_value)
-        # action = m.sample()
-        # print(m.probs)
+        try:
+            action = m.sample()
+            temp_counter = 0
+            while True:
+                if temp_counter >= 10:
+                    print("temp_i:", temp_i)
+                    print("action:", action)
+                    print("state:", state)
+                    print("availablePos:", availablePos)
+                    print("probs:", probs)
+                    print("probs_aaaaa:", probs_aaaaa)
+                    print("state_value:", state_value)
+                    return
+                if availablePos[action] == 0:
+                    action = m.sample()
+                    print(temp_counter)
+                    temp_counter = temp_counter+1
+                else:
+                    break
+        except:
+            print("state:", state)
+            print("availablePos:", availablePos)
+            print("probs:", probs)
+            print("state_value:", state_value)
 
         # save to action buffer
         SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
@@ -394,30 +349,16 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
                             help='interval between training status logs (default: 10)')
         args = parser.parse_args()
 
-        """This is what happens here: each partial reward is added to an
-        episode reward, such that r_episode = r_partial + gamma * r_episode.
-        Then, in the returns list, the new episode reward is added such that
-        returns contains all intermittend episode rewards, ordered from last to
-        first."""
         for r in self.rewards[::-1]:
             # calculate the discounted value
             R = r + args.gamma * R
             returns.insert(0, R)
 
-        """Then returns is cast as a tensor, and the epsilon of a float32 is
-        assigned to eps. Then, returns minus its mean is divided by its std +
-        eps. Eps is presumably added to avoid division by zero. essentially,
-        you calculate for each intermittent episode reward how many stds it is
-        from the mean."""
         returns = torch.tensor(returns)
         eps = np.finfo(np.float32).eps.item()
         returns = (returns - returns.mean()) / (returns.std() + eps)
 
-        """For every action and its reward, calculate the policy and value
-        network's losses. For the value network, use a smooth loss."""
         for (log_prob, value), R in zip(saved_actions, returns):
-            """advantage is the stdevs from the mean, minus the action value
-            as predicted by the network. Advantage is/should be a tensor."""
             advantage = R - value.item()
             # print("R:", R)
             # print("value:", value)
@@ -425,6 +366,7 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
             # calculate actor (policy) loss
             policy_losses.append(-log_prob * advantage)
 
+            warnings.simplefilter(action='ignore', category=UserWarning)
             # calculate critic (value) loss using L1 smooth loss
             value_losses.append(F.smooth_l1_loss(value, torch.tensor([R])))
 

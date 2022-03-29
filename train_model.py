@@ -27,6 +27,7 @@ class TrainGameModel():
 
     def run_training(self, train_episodes):
         all_episode_reward = []
+        dims = self.wh_sim.dims
         for i_episode in range(train_episodes):
             wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
             # Fill the RTM history registry
@@ -46,10 +47,20 @@ class TrainGameModel():
                 self.wh_sim.sim_time += 10.0
 
                 # Get the occupancy (and inverse occupancy).
-                occupied_locs = np.reshape(self.wh_sim.shelf_occupied,
-                                           (12, 8)).flatten(order='C').tolist()
-                free_locs = np.reshape(~self.wh_sim.shelf_occupied, (12, 8)
-                                       ).flatten(order='C').tolist()
+                # occupied_locs = np.reshape(self.wh_sim.shelf_occupied,
+                #                            (12, 8)).flatten(order='C').tolist()
+                # free_locs = np.reshape(~self.wh_sim.shelf_occupied, (12, 8)
+                #                        ).flatten(order='C').tolist()
+                # The original occupancy matrix needs to be transposed, reshaped, transposed again
+                # and then flattened and cast to a list.
+                occupied_locs = self.wh_sim.shelf_occupied.transpose((1, 0, 2))
+                occupied_locs = occupied_locs.reshape((dims[0] * dims[1], dims[2]))
+                occupied_locs = occupied_locs.transpose(1, 0).flatten().tolist()
+
+                free_locs = ~self.wh_sim.shelf_occupied.transpose((1, 0, 2))
+                free_locs = free_locs.reshape((dims[0] * dims[1], dims[2]))
+                free_locs = free_locs.transpose(1, 0).flatten().tolist()
+
                 # Store the number of free and occupied locations.
                 free_and_occ = (len(free_locs), len(occupied_locs))
 
@@ -79,19 +90,16 @@ class TrainGameModel():
                 # Prepare the state.
                 wh_state = self.wh_sim.GetState(infeed)
                 # print(wh_state)
-                self.wh_sim.PrintOccupancy()
+                # self.wh_sim.PrintOccupancy()
 
                 # Select an action with the NN based on the state, order type and occupancy.
                 # TODO: Make sure the selected action is a usable shelf_id!
                 if infeed:
                     action = self.neural_network.select_action(np.array(wh_state), free_locs)
                     infeed_count += 1
-                    print(free_locs[action])
-                    print(action)
                 elif not infeed:
                     action = self.neural_network.select_action(np.array(wh_state), occupied_locs)
                     outfeed_count += 1
-                    print(action)
                 else:
                     raise Exception(f"""The order type of order {next_order_id}
                                     ({next_order["order_type"]}) is wrong! Time:
@@ -130,7 +138,8 @@ class TrainGameModel():
             all_episode_reward.append(episode_reward)
 
             # Print the order register for inspection.
-            in_dens, out_dens = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=True)
+            in_dens, out_dens = self.wh_sim.GetShelfAccessDensities(
+                normalized=False, print_it=False)
 
             # Print occupancy matrix.
             # self.wh_sim.PrintOccupancy()
@@ -209,7 +218,7 @@ def main():
     num_rows = 2
     num_floors = 6
     num_cols = 8
-    episode_length = 100
+    episode_length = 96
     num_hist_rtms = 3
     wh_sim = wh(num_rows,
                 num_floors,
