@@ -77,7 +77,7 @@ class OrderSystem():
         self.QueueOrder(order_id)
 
         # Finish.
-        print(f"Order {order_id} ({order_type}, item type {item_type}) generated and queued.")
+        # print(f"Order {order_id} ({order_type}, item type {item_type}) generated and queued.")
 
     def QueueOrder(self, order_id):
         """Queue an order that has just been generated."""

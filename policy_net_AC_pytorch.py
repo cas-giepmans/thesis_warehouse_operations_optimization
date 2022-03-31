@@ -9,6 +9,7 @@ from torch.autograd import Variable
 import numpy as np
 import copy
 import warnings
+import sys
 
 
 class Net(nn.Module):
@@ -297,17 +298,20 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
             temp_counter = 0
             while True:
                 if temp_counter >= 10:
-                    print("temp_i:", temp_i)
-                    print("action:", action)
+                    # print("temp_i:", temp_i)
+                    # print("action:", action.item())
                     print("state:", state)
-                    print("availablePos:", availablePos)
+                    # print("availablePos:", availablePos)
                     print("probs:", probs)
                     print("probs_aaaaa:", probs_aaaaa)
-                    print("state_value:", state_value)
+                    # print("state_value:", state_value)
+                    # for label, p in enumerate(probs[0]):
+                    #     print(f'{label:2}: {100*probs[0][label]}%')
+                    # sys.exit()
                     return
                 if availablePos[action] == 0:
                     action = m.sample()
-                    print(temp_counter)
+                    # print(temp_counter)
                     temp_counter = temp_counter+1
                 else:
                     break
@@ -316,6 +320,7 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
             print("availablePos:", availablePos)
             print("probs:", probs)
             print("state_value:", state_value)
+        # print(action)
 
         # save to action buffer
         SavedAction = namedtuple('SavedAction', ['log_prob', 'value'])
@@ -356,6 +361,7 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
 
         returns = torch.tensor(returns)
         eps = np.finfo(np.float32).eps.item()
+        # Subtract from the rewards their mean, then divide by their stdev + epsilon.
         returns = (returns - returns.mean()) / (returns.std() + eps)
 
         for (log_prob, value), R in zip(saved_actions, returns):
