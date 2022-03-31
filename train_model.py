@@ -2,7 +2,6 @@ import sys
 import random
 import matplotlib.pyplot as plt
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
-# from newPlantGame import PlantGame_AVSRS as plantGame
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
 from datetime import datetime
@@ -29,17 +28,17 @@ class TrainGameModel():
         all_episode_reward = []
         dims = self.wh_sim.dims
         for i_episode in range(train_episodes):
-            wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
-            # Fill the RTM history registry
-            for i in range(self.wh_sim.num_historical_rtms - 1):
-                print("added an rtm: ", i)
-                self.wh_sim.CalcRTM()
+            # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
+            wh_state = self.wh_sim.ResetState(random_fill_percentage=0.0)
 
+            # Reset local variables.
             episode_reward = 0
             all_action = []
             all_reward = []
             infeed_count = 0
             outfeed_count = 0
+            occupied_locs = None
+            free_locs = None
 
             while True:
                 # Increase the sim_time by some amount here.
@@ -51,6 +50,8 @@ class TrainGameModel():
                 #                            (12, 8)).flatten(order='C').tolist()
                 # free_locs = np.reshape(~self.wh_sim.shelf_occupied, (12, 8)
                 #                        ).flatten(order='C').tolist()
+                # occupied_locs = None
+                # free_locs = None
                 # The original occupancy matrix needs to be transposed, reshaped, transposed again
                 # and then flattened and cast to a list.
                 occupied_locs = self.wh_sim.shelf_occupied.transpose((1, 0, 2))
@@ -65,8 +66,10 @@ class TrainGameModel():
                 free_and_occ = (len(free_locs), len(occupied_locs))
 
                 # Generate a new order.
+                # self.wh_sim.order_system.GenerateNewOrder(
+                #     order_type="random", item_type=1, current_time=self.wh_sim.sim_time)
                 self.wh_sim.order_system.GenerateNewOrder(
-                    order_type="random", item_type=1, current_time=self.wh_sim.sim_time)
+                    order_type="infeed", item_type=1, current_time=self.wh_sim.sim_time)
 
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
@@ -111,7 +114,17 @@ class TrainGameModel():
                 all_action.append(action)
                 # print(action)
                 # Have the selected action get executed by the warehouse sim.
-                action_reward, is_end = self.wh_sim.ProcessAction(infeed, selected_shelf_id=action)
+                # TODO: fix the Categorical dist. not outputting an action.
+                try:
+                    action_reward, is_end = self.wh_sim.ProcessAction(infeed, action)
+                except Exception:
+                    print("Picking random action from available shelves.")
+                    print(f"free IDs: {self.wh_sim.GetIds(True)}")
+                    print(f"Free locs: {free_locs}")
+                    # self.wh_sim.PrintOccupancy()
+                    av_ids = self.wh_sim.GetIds(infeed)
+                    action = random.choice(av_ids)
+                    action_reward, is_end = self.wh_sim.ProcessAction(infeed, action)
 
                 # Finish and log the executed order.
                 finish_time = action_reward + self.wh_sim.sim_time
@@ -148,7 +161,7 @@ class TrainGameModel():
             print(f"Finished ep. {i_episode + 1}/{train_episodes}.")
             print(f"""Episode number: {i_episode}
                       \rEpisode time: {episode_reward}
-                      \rMax reward so far: {max(all_episode_reward)}
+                      \rMin. episode time so far: {min(all_episode_reward)}
                       \rLearning rate: {self.lr}
                       \rInfeed orders: {infeed_count}
                       \rOutfeed orders: {outfeed_count}
@@ -162,14 +175,14 @@ class TrainGameModel():
         # see shelf access density.
 
         # Print the average episode time. Shorter is better.
-        # print("Average episode time:", np.mean(self.wh_sim.episodeTimes), "Variance episode times:", np.var(self.wh_sim.episodeTimes), "Standard deviation episode times:", np.std(self.wh_sim.episodeTimes) )
-        # self.drawResult(self.wh_sim.episodeTimes)
+        # print("Average episode time:", np.mean(self.wh_sim.all_episode_reward), "Variance episode times:", np.var(self.wh_sim.all_episode_reward), "Standard deviation episode times:", np.std(self.wh_sim.all_episode_reward) )
+        self.drawResult(all_episode_reward)
         self.DrawAccessDensity(in_dens)
-        self.DrawAccessDensity(out_dens)
+        # self.DrawAccessDensity(out_dens)
 
     def saveBestModel(self):
         # 根据总耗时最小的原则确定是否保存为新模型
-        if self.wh_sim.episodeTimes[len(self.wh_sim.episodeTimes)-1] == min(self.wh_sim.episodeTimes):
+        if all_episode_reward[len(all_episode_reward)-1] == min(all_episode_reward):
             savePath = "./plantPolicy_" + str(self.wh_sim.XDim) + "_" + str(self.wh_sim.YDim) + "_" + str(
                 self.train_episodes) + ".model"
             self.neural_network.save_model(savePath)  # 保存模型

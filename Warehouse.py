@@ -26,7 +26,8 @@ class Warehouse():
             num_floors=6,
             num_cols=8,
             episode_length=1000,
-            num_hist_rtms=2):
+            num_hist_rtms=2,
+            num_hist_occs=2):
         """
 
 
@@ -51,6 +52,7 @@ class Warehouse():
         self.rtm = np.zeros(self.dims)
         self.shelf_occupied = np.zeros(self.dims, dtype=bool)
         self.rtm_history = []
+        self.occ_history = []
 
         # dictionary to store shelf coordinates, accessed through shelf_id.
         self.shelf_rfc = {}  # Key: shelf_id[r, c, f], val: (r, c, f)
@@ -61,6 +63,7 @@ class Warehouse():
         # Variables about time
         self.episode_length = episode_length  # Nr. of orders per episode.
         self.num_historical_rtms = num_hist_rtms
+        self.num_historical_occs = num_hist_occs
         self.sim_time = 0.0
         self.last_episode_time = 0.0
         self.vt_floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
@@ -118,6 +121,8 @@ class Warehouse():
         self.last_episode_time = self.sim_time
         self.sim_time = 0.0
         self.action_counter = 0
+        self.agent_busy_till.clear()
+        self.agent_location.clear()
 
         self.agent_busy_till = {'vt': 0}
 
@@ -127,6 +132,12 @@ class Warehouse():
         self.agent_location = {'vt': {0.0: 0}}
         for f in range(self.num_floors):
             self.agent_location['sh'+str(f)] = {0.0: 0}
+
+        # Reset the current RTM. Calculate a couple of times to fill RTM history.
+        self.rtm = np.zeros_like(self.rtm)
+        self.rtm_history.clear()
+        for i in range(self.num_historical_rtms):
+            self.CalcRTM()
 
         self.order_system.Reset()
 
@@ -160,13 +171,6 @@ class Warehouse():
             wh_state.append(np.reshape(~self.shelf_occupied,
                             (self.dims[0] * self.dims[1], self.dims[2])).tolist())
         return wh_state
-
-    # def do_action(self, action):
-
-    #     self.action_counter += 1
-    #     is_end = True if self.action_counter == self.episode_length else False
-
-    #     return self.rtm, reward, is_end
 
     def CalcShelfAccessTime(self, shelf_id, infeed=True):
         """Calculates the time needed for accessing a shelf, either for infeed or outfeed."""
@@ -245,6 +249,11 @@ class Warehouse():
             # Else, the shelf isn't occupied, so we can outfeed from this location.
             else:
                 self.rtm[r, f, c] = self.CalcShelfAccessTime(shelf_id, infeed=False)
+
+        # Normalize the RTM to a value between 0 and 1.
+        _max = self.rtm.max()
+        _min = self.rtm.min()
+        self.rtm = (self.rtm - _min) / (_max - _min)
 
     def ReadyTransporters(self, shelf_id, infeed=True):
         """
@@ -476,7 +485,7 @@ class Warehouse():
 
     def SetRandomOccupancy(self, fill_percentage=0.5):
         """Randomly sets a percentage of shelves to either occupied or not."""
-        random_bools = (np.random.rand(self.num_locs) > fill_percentage).astype(bool)
+        random_bools = (np.random.rand(self.num_locs) < fill_percentage).astype(bool)
         random_array = np.reshape(np.asarray(random_bools, dtype=bool),
                                   (self.dims[0], self.dims[1], self.dims[2]))
         self.shelf_occupied = random_array
