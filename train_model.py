@@ -18,6 +18,7 @@ class TrainGameModel():
             wh.num_historical_rtms + 1,  # number of states (?)
             wh.num_locs,  # Number of storage locations.
             wh.num_locs)
+
         dt = datetime.now()  # 创建一个datetime类对象
         self.startTime = dt.strftime('%y-%m-%d %I:%M:%S %p')
         self.endTime = 0
@@ -26,7 +27,7 @@ class TrainGameModel():
         self.epsiode_count = 0
         self.change_count = 200
 
-    def run_training(self, train_episodes):
+    def RunTraining(self, train_episodes):
         all_episode_times = []
         dims = self.wh_sim.dims
         for i_episode in range(train_episodes):
@@ -51,13 +52,6 @@ class TrainGameModel():
                 # vertical transporter becomes available.
                 self.wh_sim.sim_time = self.wh_sim.agent_busy_till['vt']
 
-                # Get the occupancy (and inverse occupancy).
-                # occupied_locs = np.reshape(self.wh_sim.shelf_occupied,
-                #                            (12, 8)).flatten(order='C').tolist()
-                # free_locs = np.reshape(~self.wh_sim.shelf_occupied, (12, 8)
-                #                        ).flatten(order='C').tolist()
-                # occupied_locs = None
-                # free_locs = None
                 # The original occupancy matrix needs to be transposed, reshaped, transposed again
                 # and then flattened and cast to a list.
                 occupied_locs = self.wh_sim.shelf_occupied.transpose((1, 0, 2))
@@ -98,8 +92,6 @@ class TrainGameModel():
 
                 # Prepare the state.
                 wh_state = self.wh_sim.GetState(infeed)
-                # print(wh_state)
-                # self.wh_sim.PrintOccupancy()
 
                 # Select an action with the NN based on the state, order type and occupancy.
                 # TODO: Make sure the selected action is a usable shelf_id!
@@ -118,9 +110,7 @@ class TrainGameModel():
                 # action = self.wh_sim.GetRandomShelfId(infeed=infeed)
 
                 all_action.append(action)
-                # print(action)
                 # Have the selected action get executed by the warehouse sim.
-                # TODO: fix the Categorical dist. not outputting an action.
                 try:
                     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
                 except Exception:
@@ -166,9 +156,6 @@ class TrainGameModel():
             in_dens, out_dens = self.wh_sim.GetShelfAccessDensities(
                 normalized=False, print_it=False)
 
-            # Print occupancy matrix.
-            # self.wh_sim.PrintOccupancy()
-
             # Print episode training meta info.
             print(f"Finished ep. {i_episode + 1}/{train_episodes}.")
             print(f"""Episode time: {self.wh_sim.sim_time}
@@ -178,7 +165,8 @@ class TrainGameModel():
                       \rOutfeed orders: {outfeed_count}
                       \r""")
 
-        dt = datetime.now()  # 创建一个datetime类对象
+        # Training is done here, display the time taken.
+        dt = datetime.now()
         self.endTime = dt.strftime('%y-%m-%d %I:%M:%S %p')
         print("Start time", self.startTime, "End time", self.endTime)
 
@@ -187,11 +175,11 @@ class TrainGameModel():
 
         # Print the average episode time. Shorter is better.
         # print("Average episode time:", np.mean(self.wh_sim.all_episode_times), "Variance episode times:", np.var(self.wh_sim.all_episode_times), "Standard deviation episode times:", np.std(self.wh_sim.all_episode_times) )
-        self.drawResult(all_episode_times)
+        self.DrawResults(all_episode_times)
         self.DrawAccessDensity(in_dens)
         self.DrawAccessDensity(out_dens)
 
-    def saveBestModel(self):
+    def SaveBestModel(self):
         # 根据总耗时最小的原则确定是否保存为新模型
         if self.all_episode_times[len(self.all_episode_times)-1] == min(self.all_episode_times):
             savePath = "./plantPolicy_" + str(self.wh_sim.XDim) + "_" + str(self.wh_sim.YDim) + "_" + str(
@@ -208,11 +196,10 @@ class TrainGameModel():
         plt.imshow(density_matrix, cmap="CMRmap")
         plt.colorbar()
         plt.show()
-        # plt.imshow(outfeed_density, cmap="CMRmap")
 
-    def drawResult(self, all_episode_times):
+    def DrawResults(self, all_episode_times):
         # 画图
-        print("drawResult")
+        print("DrawResults")
 
         plt.figure()
         plt.title("AC algorithm on SBS/RS")
@@ -239,6 +226,7 @@ class TrainGameModel():
     # TODO: Finish method for saving experiment results and metadata.
     def SaveExperimentResults(self):
         """Method for saving the parameters and results of an experiment to a folder."""
+        # Navigate to the experiment folder, create the folder for this run.
         # Go up two levels to the 'Thesis' folder.
         os.chdir('../..')
         # Go down to experiments with the original model.
@@ -265,11 +253,14 @@ class TrainGameModel():
 
         os.chdir(ex_dir)  # Now we're ready to store experiment parameters and results.
 
+        # Begin writing experiment summary/metadata.
         with open(f"{ex_dir} summary.txt", 'w') as f:
             f.write(f"Description of experiment {nr_files + 1}.\n\n")
             f.write(
                 f"Started: {self.startTime}. Finished: {self.endTime}. Run time: {self.endTime - self.startTime}\n")
             f.write(f"")
+
+        # Save the figures.
 
 
 def main():
@@ -288,7 +279,7 @@ def main():
 
     train_episodes = 1000  # 不建议该值超过5000
     train_plant_model = TrainGameModel(wh_sim)
-    train_plant_model.run_training(train_episodes)
+    train_plant_model.RunTraining(train_episodes)
     # sys.exit("training end")
 
 
