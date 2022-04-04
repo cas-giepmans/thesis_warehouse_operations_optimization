@@ -176,8 +176,11 @@ class TrainGameModel():
         # Print the average episode time. Shorter is better.
         # print("Average episode time:", np.mean(self.wh_sim.all_episode_times), "Variance episode times:", np.var(self.wh_sim.all_episode_times), "Standard deviation episode times:", np.std(self.wh_sim.all_episode_times) )
         self.DrawResults(all_episode_times)
-        self.DrawAccessDensity(in_dens)
-        self.DrawAccessDensity(out_dens)
+        # self.DrawAccessDensity(in_dens)
+        # self.DrawAccessDensity(out_dens)
+
+        # Print a matrix that shows the order in which shelves were filled. Infeed only!
+        self.DrawAccessOrder()
 
     def SaveBestModel(self):
         # 根据总耗时最小的原则确定是否保存为新模型
@@ -196,6 +199,39 @@ class TrainGameModel():
         plt.imshow(density_matrix, cmap="CMRmap")
         plt.colorbar()
         plt.show()
+
+    def DrawAccessOrder(self):
+        """Draw a warehouse-like matrix where each entry denotes when that shelf was filled."""
+        dims = self.wh_sim.dims
+        orders = self.wh_sim.order_system.order_register
+        order_matrix = np.zeros((dims[0], dims[1], dims[2]), dtype=int)
+        id_matrix = np.zeros_like(order_matrix)
+
+        for (order_id, order_data) in orders.items():
+            (r, f, c) = self.wh_sim.shelf_rfc[order_data['shelf_id']]
+            order_matrix[r, f, c] = order_id
+            id_matrix[r, f, c] = order_data['shelf_id']
+
+        order_matrix = np.reshape(order_matrix, (dims[0] * dims[1], dims[2]))
+        # id_matrix = id_matrix.transpose((1, 0, 2))
+        id_matrix = np.reshape(id_matrix, (dims[0] * dims[1], dims[2]))
+        # id_matrix = id_matrix.transpose(1, 0)
+        # print(id_matrix)
+
+        fig, ax = plt.subplots()
+
+        ax.matshow(order_matrix)
+
+        for j in range(dims[0] * dims[1]):
+            for i in range(dims[2]):
+                val = order_matrix[j, i]
+                ax.text(i, j, str(val), va='center', ha='center')
+
+        plt.show()
+
+        # occupied_locs = self.wh_sim.shelf_occupied.transpose((1, 0, 2))
+        # occupied_locs = occupied_locs.reshape((dims[0] * dims[1], dims[2]))
+        # occupied_locs = occupied_locs.transpose(1, 0).flatten().tolist()
 
     def DrawResults(self, all_episode_times):
         # 画图
@@ -269,7 +305,7 @@ def main():
     num_rows = 2
     num_floors = 6
     num_cols = 6
-    episode_length = 36
+    episode_length = 72
     num_hist_rtms = 5
     wh_sim = wh(num_rows,
                 num_floors,
