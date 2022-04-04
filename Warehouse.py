@@ -5,6 +5,7 @@ Created on Thu Mar 10 16:09:44 2022.
 @author: casgi
 """
 import numpy as np
+from numba import jit
 import random
 from orders import OrderSystem
 
@@ -49,7 +50,7 @@ class Warehouse():
         self.num_locs = self.num_rows * self.num_floors * self.num_cols
 
         # Numpy arrays to keep track of response times and occupancy.
-        self.rtm = np.zeros(self.dims)
+        self.rtm = np.zeros(self.dims, np.float32)
         self.shelf_occupied = np.zeros(self.dims, dtype=bool)
         self.rtm_history = []
         self.occ_history = []
@@ -58,23 +59,25 @@ class Warehouse():
         self.shelf_rfc = {}  # Key: shelf_id[r, c, f], val: (r, c, f)
 
         # Numpy array to keep track of shelf IDs
-        self.shelf_id = np.zeros(self.dims)
+        self.shelf_id = np.zeros(self.dims, np.int16)
 
         # Variables about time
         self.episode_length = episode_length  # Nr. of orders per episode.
         self.num_historical_rtms = num_hist_rtms
         self.num_historical_occs = num_hist_occs
         self.sim_time = 0.0
-        self.last_episode_time = 0.0
-        self.vt_floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
-        self.column_travel_time = 1.8 / 1  # 1.8m col width, 1m/s shuttle speed
+        self.prev_action_time = 0.0
+        # self.vt_floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
+        # self.column_travel_time = 1.8 / 1  # 1.8m col width, 1m/s shuttle speed
+        self.vt_floor_travel_time = 1.2 / 1.0
+        self.column_travel_time = 1.2 / 1.0
 
         # Dictionary to store agent schedule.
         # There is a single vertical transporter, it is available after t = 0.
         # Also add a shuttle for each floor, each one is available after t = 0.
-        self.agent_busy_till = {'vt': 0}
+        self.agent_busy_till = {'vt': 0.0}
         for f in range(self.num_floors):
-            self.agent_busy_till['sh'+str(f)] = 0
+            self.agent_busy_till['sh'+str(f)] = 0.0
 
         # Dictionary of dictionaries to keep track of agents locations in time.
         # For each agent's location dict, the key is the simulation time, and
@@ -118,23 +121,23 @@ class Warehouse():
         # If requested, fill the shelves randomly up to a certain percentage.
         if random_fill_percentage is not None:
             self.SetRandomOccupancy(fill_percentage=random_fill_percentage)
-        self.last_episode_time = self.sim_time
         self.sim_time = 0.0
+        self.prev_action_time = 0.0
         self.action_counter = 0
         self.agent_busy_till.clear()
         self.agent_location.clear()
 
-        self.agent_busy_till = {'vt': 0}
+        self.agent_busy_till = {'vt': 0.0}
 
         for f in range(self.num_floors):
-            self.agent_busy_till['sh'+str(f)] = 0
+            self.agent_busy_till['sh'+str(f)] = 0.0
 
         self.agent_location = {'vt': {0.0: 0}}
         for f in range(self.num_floors):
             self.agent_location['sh'+str(f)] = {0.0: 0}
 
         # Reset the current RTM. Calculate a couple of times to fill RTM history.
-        self.rtm = np.zeros_like(self.rtm)
+        self.rtm = np.zeros_like(self.rtm, np.float32)
         self.rtm_history.clear()
         for i in range(self.num_historical_rtms):
             self.CalcRTM()
@@ -216,6 +219,7 @@ class Warehouse():
         # Return the relative time
         return curr_time - self.sim_time
 
+    # @jit(forceobj=True)
     def CalcRTM(self):
         """
         Important: make sure to update Warehouse.sim_time before you calculate the RTM, and that you
@@ -343,7 +347,7 @@ class Warehouse():
             Tuple containing the row, floor and column of the selected shelf.
 
         ----------
-        Returns None.
+        Returns action_time, is_end.
 
         """
         if selected_shelf_id is None and rfc is None:
@@ -397,13 +401,13 @@ class Warehouse():
         self.shelf_occupied[r, f, c] = True if infeed else False
 
         # Calculate the reward:
-        reward = action_time - self.sim_time
+        # reward = action_time - self.sim_time
 
         # Determine if this the episode length has been reached.
         self.action_counter += 1
         is_end = True if self.action_counter >= self.episode_length else False
 
-        return reward, is_end
+        return action_time, is_end
 
     """
     Below are some utility functions and pass-throughs.
@@ -529,40 +533,44 @@ class Warehouse():
         return infeed_density, outfeed_density
 
 
-def main():
-    test_wh = Warehouse()
-    item_id_a = 0
-    item_id_b = 12
+# def main():
+#     test_wh = Warehouse()
+    # item_id_a = 0
+    # item_id_b = 12
 
-    test_wh.CalcRTM()
-    test_wh.PrintRTM()
-    print(test_wh.agent_location)
+    # test_wh.CalcRTM()
+    # test_wh.PrintRTM()
+    # print(test_wh.agent_location)
 
-    # Infeed an item
-    test_wh.ProcessAction(infeed=True, selected_shelf_id=item_id_a)
-    # Calculate the new response time matrix given the new infeed order
-    test_wh.CalcRTM()
-    # Print it
-    test_wh.PrintRTM()
-    # Progress simulation time
-    # test_wh.sim_time += test_wh.Get_RTM(test_wh.shelf_rfc[item_id_a])
-    test_wh.sim_time += 1
-    print(test_wh.agent_location)
+    # # Infeed an item
+    # test_wh.ProcessAction(infeed=True, selected_shelf_id=item_id_a)
+    # # Calculate the new response time matrix given the new infeed order
+    # test_wh.CalcRTM()
+    # # Print it
+    # test_wh.PrintRTM()
+    # # Progress simulation time
+    # # test_wh.sim_time += test_wh.Get_RTM(test_wh.shelf_rfc[item_id_a])
+    # test_wh.sim_time += 1
+    # print(test_wh.agent_location)
 
-    test_wh.ProcessAction(infeed=True, selected_shelf_id=item_id_b)
-    test_wh.CalcRTM()
-    test_wh.PrintRTM()
-    # test_wh.sim_time += test_wh.Get_RTM(test_wh.shelf_rfc[item_id_b])
-    # print(test_wh.shelf_rfc[item_id_b])
-    test_wh.sim_time += 5.4
-    test_wh.CalcRTM()
-    test_wh.PrintRTM()
-    print(test_wh.agent_location)
-    print(test_wh.shelf_occupied)
-    # print(test_wh.GetGreedyShelfId(infeed=False))
-    print(test_wh.GetRandomShelfId())
+    # test_wh.ProcessAction(infeed=True, selected_shelf_id=item_id_b)
+    # test_wh.CalcRTM()
+    # test_wh.PrintRTM()
+    # # test_wh.sim_time += test_wh.Get_RTM(test_wh.shelf_rfc[item_id_b])
+    # # print(test_wh.shelf_rfc[item_id_b])
+    # test_wh.sim_time += 5.4
+    # test_wh.CalcRTM()
+    # test_wh.PrintRTM()
+    # print(test_wh.agent_location)
+    # print(test_wh.shelf_occupied)
+    # # print(test_wh.GetGreedyShelfId(infeed=False))
+    # print(test_wh.GetRandomShelfId())
+
+    # test_wh.CalcRTM()
+
+    # for i in range(10000):
+    #     test_wh.CalcRTM()
 
 
-if __name__ == '__main__':
-    main()
-    main()
+# if __name__ == '__main__':
+#     main()

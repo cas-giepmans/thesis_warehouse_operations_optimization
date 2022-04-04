@@ -1,10 +1,12 @@
 import sys
+import os
 import random
 import matplotlib.pyplot as plt
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
-from datetime import datetime
+from datetime import date, datetime
+from pathlib import Path
 
 
 class TrainGameModel():
@@ -19,13 +21,13 @@ class TrainGameModel():
         dt = datetime.now()  # 创建一个datetime类对象
         self.startTime = dt.strftime('%y-%m-%d %I:%M:%S %p')
         self.endTime = 0
-        self.lr = 4.e-3
+        self.lr = 5.e-4
         self.lr_decay = 0.9
         self.epsiode_count = 0
-        self.change_count = 1500
+        self.change_count = 200
 
     def run_training(self, train_episodes):
-        all_episode_reward = []
+        all_episode_times = []
         dims = self.wh_sim.dims
         for i_episode in range(train_episodes):
             # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
@@ -43,7 +45,11 @@ class TrainGameModel():
             while True:
                 # Increase the sim_time by some amount here.
                 # TODO: set it to be larger than num_floors * shortest response time.
-                self.wh_sim.sim_time += 10.0
+                # self.wh_sim.sim_time += 10.0
+
+                # In order to recreate the Lei Luo paper results, new orders should start when the
+                # vertical transporter becomes available.
+                self.wh_sim.sim_time = self.wh_sim.agent_busy_till['vt']
 
                 # Get the occupancy (and inverse occupancy).
                 # occupied_locs = np.reshape(self.wh_sim.shelf_occupied,
@@ -116,39 +122,45 @@ class TrainGameModel():
                 # Have the selected action get executed by the warehouse sim.
                 # TODO: fix the Categorical dist. not outputting an action.
                 try:
-                    action_reward, is_end = self.wh_sim.ProcessAction(infeed, action)
+                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
                 except Exception:
+                    # TODO: Make sure the system doesn't generate illegal orders.
                     print("Picking random action from available shelves.")
                     print(f"free IDs: {self.wh_sim.GetIds(True)}")
                     print(f"Free locs: {free_locs}")
-                    # self.wh_sim.PrintOccupancy()
+                    print(next_order)
+                    self.wh_sim.PrintOccupancy()
                     av_ids = self.wh_sim.GetIds(infeed)
                     action = random.choice(av_ids)
-                    action_reward, is_end = self.wh_sim.ProcessAction(infeed, action)
+                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
 
                 # Finish and log the executed order.
-                finish_time = action_reward + self.wh_sim.sim_time
+                finish_time = action_time + self.wh_sim.sim_time
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
 
-                # Log the rewards.
-                self.neural_network.add_reward(action_reward)
-                episode_reward += action_reward
+                # Calculate and log the reward.
+                reward = self.wh_sim.prev_action_time - action_time
+                self.neural_network.add_reward(reward)
+                # episode_reward += reward
+
+                # Log the action time.
+                self.wh_sim.prev_action_time = action_time
 
                 if is_end:
                     break
 
             # Adjust the learning rate.
             self.epsiode_count = self.epsiode_count + 1  # self.epsiode_count += 1
-            if self.epsiode_count == self.change_count:
+            if self.epsiode_count % self.change_count == 0:
                 self.lr = self.lr*self.lr_decay
-                self.change_count = 500
+                # self.change_count = 500
                 self.epsiode_count = 0
 
             # Perform a training step for the neural network.
             self.neural_network.train_step(self.lr)
 
-            # Append the episode's reward to the list of all rewards.
-            all_episode_reward.append(episode_reward)
+            # Append the episode's time to the list of all times.
+            all_episode_times.append(self.wh_sim.sim_time)
 
             # Print the order register for inspection.
             in_dens, out_dens = self.wh_sim.GetShelfAccessDensities(
@@ -159,9 +171,8 @@ class TrainGameModel():
 
             # Print episode training meta info.
             print(f"Finished ep. {i_episode + 1}/{train_episodes}.")
-            print(f"""Episode number: {i_episode}
-                      \rEpisode time: {episode_reward}
-                      \rMin. episode time so far: {min(all_episode_reward)}
+            print(f"""Episode time: {self.wh_sim.sim_time}
+                      \rMin. episode time so far: {min(all_episode_times)}
                       \rLearning rate: {self.lr}
                       \rInfeed orders: {infeed_count}
                       \rOutfeed orders: {outfeed_count}
@@ -175,18 +186,19 @@ class TrainGameModel():
         # see shelf access density.
 
         # Print the average episode time. Shorter is better.
-        # print("Average episode time:", np.mean(self.wh_sim.all_episode_reward), "Variance episode times:", np.var(self.wh_sim.all_episode_reward), "Standard deviation episode times:", np.std(self.wh_sim.all_episode_reward) )
-        self.drawResult(all_episode_reward)
+        # print("Average episode time:", np.mean(self.wh_sim.all_episode_times), "Variance episode times:", np.var(self.wh_sim.all_episode_times), "Standard deviation episode times:", np.std(self.wh_sim.all_episode_times) )
+        self.drawResult(all_episode_times)
         self.DrawAccessDensity(in_dens)
-        # self.DrawAccessDensity(out_dens)
+        self.DrawAccessDensity(out_dens)
 
     def saveBestModel(self):
         # 根据总耗时最小的原则确定是否保存为新模型
-        if all_episode_reward[len(all_episode_reward)-1] == min(all_episode_reward):
+        if self.all_episode_times[len(self.all_episode_times)-1] == min(self.all_episode_times):
             savePath = "./plantPolicy_" + str(self.wh_sim.XDim) + "_" + str(self.wh_sim.YDim) + "_" + str(
                 self.train_episodes) + ".model"
             self.neural_network.save_model(savePath)  # 保存模型
 
+    # TODO: Improve this function: subplots, titles, correctly oriented.
     def DrawAccessDensity(self, density_matrix):
         """Draw the access densities for shelves given infeed and outfeed order counts."""
         dims = self.wh_sim.dims
@@ -198,7 +210,7 @@ class TrainGameModel():
         plt.show()
         # plt.imshow(outfeed_density, cmap="CMRmap")
 
-    def drawResult(self, all_episode_reward):
+    def drawResult(self, all_episode_times):
         # 画图
         print("drawResult")
 
@@ -206,9 +218,9 @@ class TrainGameModel():
         plt.title("AC algorithm on SBS/RS")
         plt.xlabel("training rounds")
         plt.ylabel("spent time")
-        plt.plot(all_episode_reward, color="g")
+        plt.plot(all_episode_times, color="g")
 
-        mean_list = [np.mean(all_episode_reward)] * len(all_episode_reward)
+        mean_list = [np.mean(all_episode_times)] * len(all_episode_times)
         plt.figure()
         plt.title("Training loss (limited at 50 and -50)")
         loss_list = self.neural_network.getLossValue()
@@ -220,9 +232,44 @@ class TrainGameModel():
 
         plt.plot(loss_list)
 
-        zero_list = [0] * len(all_episode_reward)
+        zero_list = [0] * len(all_episode_times)
         plt.plot(zero_list, linestyle='--', color="k")
         plt.show()
+
+    # TODO: Finish method for saving experiment results and metadata.
+    def SaveExperimentResults(self):
+        """Method for saving the parameters and results of an experiment to a folder."""
+        # Go up two levels to the 'Thesis' folder.
+        os.chdir('../..')
+        # Go down to experiments with the original model.
+        os.chdir(r"Experiments\LeiLuo's model")
+        # Set the name for the folder housing today's experiments.
+        today_dir = f"{date.today().day}-{date.today().month}-{date.today().year}"
+        try:
+            os.mkdir(today_dir)
+        except FileExistsError:
+            # Folder already exists, use it.
+            print(f"Using the folder '{today_dir}'")
+
+        os.chdir(today_dir)  # Now we're inside today's folder.
+
+        # Figure out how many experiments were stored before.
+        nr_files = len(os.listdir())
+        # fin_time = f"{datetime.now().hour}.{datetime.now().minute}.{datetime.now().second}"
+        # Set the experiment's folder's name.
+        ex_dir = f"Exp. {nr_files + 1}"  # ", t_fin = {fin_time}"
+        try:
+            os.mkdir(ex_dir)
+        except FileExistsError:
+            print(f"Something went wrong, folder '{ex_dir}' already exists...?")
+
+        os.chdir(ex_dir)  # Now we're ready to store experiment parameters and results.
+
+        with open(f"{ex_dir} summary.txt", 'w') as f:
+            f.write(f"Description of experiment {nr_files + 1}.\n\n")
+            f.write(
+                f"Started: {self.startTime}. Finished: {self.endTime}. Run time: {self.endTime - self.startTime}\n")
+            f.write(f"")
 
 
 def main():
@@ -230,19 +277,19 @@ def main():
     # y_dim = 6 * 2  # row * 2
     num_rows = 2
     num_floors = 6
-    num_cols = 8
-    episode_length = 96
-    num_hist_rtms = 3
+    num_cols = 6
+    episode_length = 36
+    num_hist_rtms = 5
     wh_sim = wh(num_rows,
                 num_floors,
                 num_cols,
                 episode_length,
                 num_hist_rtms=num_hist_rtms)
 
-    train_episodes = 1  # 不建议该值超过5000
+    train_episodes = 1000  # 不建议该值超过5000
     train_plant_model = TrainGameModel(wh_sim)
     train_plant_model.run_training(train_episodes)
-    sys.exit("training end")
+    # sys.exit("training end")
 
 
 if __name__ == '__main__':

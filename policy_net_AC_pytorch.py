@@ -11,6 +11,8 @@ import copy
 import warnings
 import sys
 
+from numba import jit
+
 
 class Net(nn.Module):
     """policy-value network module"""
@@ -145,6 +147,8 @@ class DeeperValAct_net(nn.Module):
         self.val_fc1 = nn.Linear(self.StateNum * self.posNum, 64)
         self.val_fc2 = nn.Linear(64, 1)
 
+    # TODO: rewrite method outside of class, then use @jit(nopython=True)
+    # @jit(forceobj=True)
     def forward(self, state_input):
         # common layers
         x = F.relu(self.conv1(state_input))
@@ -245,9 +249,9 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         for m in self.policy_value_net.modules():
             if isinstance(m, nn.Linear):
                 # nn.init.uniform_(m.weight.data, 0, 1)
-                # nn.init.xavier_uniform_(m.weight.data, gain=1)
+                nn.init.xavier_uniform_(m.weight.data, gain=1)
                 # print("a")
-                pass
+                # pass
             elif isinstance(m, nn.Conv2d):
                 # nn.init.kaiming_normal_(m.weight.data, mode='fan_out')
                 nn.init.kaiming_normal_(m.weight.data, mode='fan_in', nonlinearity='relu')
@@ -265,11 +269,13 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         self.rewards = []
         self.lossValue = []
 
+    # TODO: consider rewriting for @jit(nopython=True) compilation.
+    # @jit(forceobj=True)
     def select_action(self, state, availablePos):
         state = torch.from_numpy(state).float().unsqueeze(0)
         # print("state value in Array(input to the neural network):", state)
         probs, state_value = self.policy_value_net(state)
-        probs_aaaaa = copy.deepcopy(probs.data[0])
+        # probs_aaaaa = copy.deepcopy(probs.data[0])
         # print("probs_before:", probs)
         max_prob = 0
         max_prob_index = 0
@@ -300,10 +306,10 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
                 if temp_counter >= 10:
                     # print("temp_i:", temp_i)
                     # print("action:", action.item())
-                    print("state:", state)
+                    # print("state:", state)
                     # print("availablePos:", availablePos)
-                    print("probs:", probs)
-                    print("probs_aaaaa:", probs_aaaaa)
+                    # print("probs:", probs)
+                    # print("probs_aaaaa:", probs_aaaaa)
                     # print("state_value:", state_value)
                     # for label, p in enumerate(probs[0]):
                     #     print(f'{label:2}: {100*probs[0][label]}%')
