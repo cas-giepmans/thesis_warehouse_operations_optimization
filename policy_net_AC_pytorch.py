@@ -119,7 +119,7 @@ class DeeperNet(nn.Module):
 
 
 class DeeperValAct_net(nn.Module):
-    """"一个更深的神经网络"""
+    """"A deeper neural network"""
     """policy-value network module"""
 
     def __init__(self, xDim, yDim, stateNume, posNum, actionNum):
@@ -127,8 +127,8 @@ class DeeperValAct_net(nn.Module):
         self.XNum = xDim
         self.YNum = yDim
         self.StateNum = stateNume
-        self.posNum = posNum  # 本游戏中，posNum = xdim*yDim
-        self.actionNum = actionNum  # 本游戏中，actionNum = posNum
+        self.posNum = posNum  # In this game, posNum = xdim*yDim
+        self.actionNum = actionNum  # In this game, actionNum = posNum
         '''----------------------------------------'''
         # common layers
         self.conv1 = nn.Conv2d(self.StateNum, 16, kernel_size=3, padding=1)
@@ -228,8 +228,8 @@ class PolicyValueNet:  # Create neural networks and train neural networks
         self.XNum = xDim
         self.YNum = yDim
         self.StateNum = stateNume
-        self.posNum = posNum  # 本游戏中，posNum = xdim*yDim
-        self.actionNum = actionNum  # 本游戏中，actionNum = posNum
+        self.posNum = posNum  # In this game, posNum = xdim*yDim
+        self.actionNum = actionNum  # In this game, actionNum = posNum
         self.l2_const = 1e-4  # coef of l2 penalty
         # the policy value net module
 

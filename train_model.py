@@ -19,8 +19,7 @@ class TrainGameModel():
             wh.num_locs,  # Number of storage locations.
             wh.num_locs)
 
-        dt = datetime.now()  # 创建一个datetime类对象
-        self.startTime = dt.strftime('%y-%m-%d %I:%M:%S %p')
+        self.startTime = datetime.now()
         self.endTime = 0
         self.lr = 5.e-4
         self.lr_decay = 0.9
@@ -166,9 +165,12 @@ class TrainGameModel():
                       \r""")
 
         # Training is done here, display the time taken.
-        dt = datetime.now()
-        self.endTime = dt.strftime('%y-%m-%d %I:%M:%S %p')
-        print("Start time", self.startTime, "End time", self.endTime)
+        # dt = datetime.now()
+        self.endTime = datetime.now()  # dt.strftime('%y-%m-%d %I:%M:%S %p')
+        # print("Start time", self.startTime, "End time", self.endTime)
+        t_seconds = (self.endTime - self.startTime).total_seconds()
+        print(
+            f"Time taken: {t_seconds} seconds. Episodes/second: {round(train_episodes / t_seconds, 2)}")
 
         # TODO: Write a function for exporting the order_register to a csv file. Would be good to
         # see shelf access density.
@@ -183,7 +185,7 @@ class TrainGameModel():
         self.DrawAccessOrder()
 
     def SaveBestModel(self):
-        # 根据总耗时最小的原则确定是否保存为新模型
+        # Determine whether to save as a new model based on the principle of least total time consumption
         if self.all_episode_times[len(self.all_episode_times)-1] == min(self.all_episode_times):
             savePath = "./plantPolicy_" + str(self.wh_sim.XDim) + "_" + str(self.wh_sim.YDim) + "_" + str(
                 self.train_episodes) + ".model"
@@ -234,7 +236,7 @@ class TrainGameModel():
         # occupied_locs = occupied_locs.transpose(1, 0).flatten().tolist()
 
     def DrawResults(self, all_episode_times):
-        # 画图
+        # Drawing
         print("DrawResults")
 
         plt.figure()
@@ -290,10 +292,14 @@ class TrainGameModel():
         os.chdir(ex_dir)  # Now we're ready to store experiment parameters and results.
 
         # Begin writing experiment summary/metadata.
+        run_time = self.endTime - self.startTime
+        run_time = run_time.strftime('%y-%m-%d %I:%M:%S %p')
+        self.startTime = self.startTime.strftime('%y-%m-%d %I:%M:%S %p')
+        self.endTime = self.endTime.strftime('%y-%m-%d %I:%M:%S %p')
         with open(f"{ex_dir} summary.txt", 'w') as f:
             f.write(f"Description of experiment {nr_files + 1}.\n\n")
             f.write(
-                f"Started: {self.startTime}. Finished: {self.endTime}. Run time: {self.endTime - self.startTime}\n")
+                f"Started: {self.startTime}. Finished: {self.endTime}. Run time: {run_time}\n")
             f.write(f"")
 
         # Save the figures.
@@ -313,7 +319,7 @@ def main():
                 episode_length,
                 num_hist_rtms=num_hist_rtms)
 
-    train_episodes = 1000  # 不建议该值超过5000
+    train_episodes = 100  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
     train_plant_model.RunTraining(train_episodes)
     # sys.exit("training end")
