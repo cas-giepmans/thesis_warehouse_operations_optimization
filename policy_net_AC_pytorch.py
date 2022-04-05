@@ -223,7 +223,7 @@ class DeepestNet(nn.Module):
         return x_act, x_val
 
 
-class PolicyValueNet:  # 创建神经网络和训练神经网络
+class PolicyValueNet:  # Create neural networks and train neural networks
     def __init__(self, xDim, yDim, stateNume, posNum, actionNum):
         self.XNum = xDim
         self.YNum = yDim
@@ -233,11 +233,11 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         self.l2_const = 1e-4  # coef of l2 penalty
         # the policy value net module
 
-        # 创建神经网络
+        # Create a neural network
         # self.policy_value_net = Net(xDim, yDim, stateNume, posNum, actionNum)
         self.policy_value_net = DeeperValAct_net(xDim, yDim, stateNume, posNum, actionNum)
         # self.policy_value_net = DeeperNet(xDim, yDim, stateNume, posNum, actionNum)
-        """初始化神经网络的参数"""
+        """Initialize the parameters of the neural network"""
         # for m in self.policy_value_net.modules():
         #     if isinstance(m, nn.Conv2d):
         #         nn.init.uniform_(m.weight, 0, 1)
@@ -280,7 +280,7 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         max_prob = 0
         max_prob_index = 0
         for temp_i in range(len(availablePos)):
-            # if probs.data[0][temp_i] <= 1e-8:  # 防止出现nan，不确定
+            # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
             #     probs.data[0][temp_i] = 1e-8
             if availablePos[temp_i] == 0:
                 probs.data[0][temp_i] = 0
@@ -289,7 +289,7 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
                 max_prob = probs.data[0][temp_i]
                 max_prob_index = temp_i
 
-        if max_prob <= 1e-8:  # 防止出现nan，不确定
+        if max_prob <= 1e-8:  # Prevent the appearance of nan, indeterminate
             probs.data[0][max_prob_index] = 1e-8
 
         # create a categorical distribution over the list of probabilities of actions
@@ -399,12 +399,12 @@ class PolicyValueNet:  # 创建神经网络和训练神经网络
         del self.saved_actions[:]
 
     def get_policy_param(self):
-        # 获取并保存模型
+        # Gets and saves the model
         net_params = self.policy_value_net.state_dict()
         return net_params
 
     def save_model(self, model_file):
-        # 获取并保存模型
+        # Gets and saves the model
         # net_params = self.get_policy_param()  # get model params
         torch.save(self.policy_value_net, model_file)
 
