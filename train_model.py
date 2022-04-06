@@ -19,22 +19,24 @@ class TrainGameModel():
             wh.num_locs,  # Number of storage locations.
             wh.num_locs)
 
-        self.startTime = datetime.now()
         self.endTime = 0
-        self.lr = 5.e-4
+        self.lr = 1.e-4
         self.lr_decay = 0.9
+        self.episode_reward = 0.0
         self.epsiode_count = 0
-        self.change_count = 200
+        self.change_count = 400
 
     def RunTraining(self, train_episodes):
+        self.startTime = datetime.now()
         all_episode_times = []
+        all_episode_rewards = []
         dims = self.wh_sim.dims
         for i_episode in range(train_episodes):
             # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
             wh_state = self.wh_sim.ResetState(random_fill_percentage=0.0)
 
             # Reset local variables.
-            episode_reward = 0
+            self.episode_reward = 0.0
             all_action = []
             all_reward = []
             infeed_count = 0
@@ -81,8 +83,9 @@ class TrainGameModel():
                         infeed = False
                 except RuntimeError:
                     # Training should continue, but this is unwanted behavior.
+                    # FIXME: this never occurs, see if you can disconnect it.
                     print(f"The episode terminated prematurely because of order {next_order_id}.")
-                    episode_reward = -1000
+                    self.episode_reward = -1000
                     self.neural_network.add_reward(-1000)
                     break
 
@@ -111,6 +114,7 @@ class TrainGameModel():
                 all_action.append(action)
                 # Have the selected action get executed by the warehouse sim.
                 try:
+                    # Process the action, returns the time at which the action is done.
                     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
                 except Exception:
                     # TODO: Make sure the system doesn't generate illegal orders.
@@ -121,16 +125,21 @@ class TrainGameModel():
                     self.wh_sim.PrintOccupancy()
                     av_ids = self.wh_sim.GetIds(infeed)
                     action = random.choice(av_ids)
+                    # Process the action, returns the time at which the action is done.
                     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
 
                 # Finish and log the executed order.
-                finish_time = action_time + self.wh_sim.sim_time
+                finish_time = action_time  # + self.wh_sim.sim_time
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
 
                 # Calculate and log the reward.
-                reward = self.wh_sim.prev_action_time - action_time
+                # TODO: find a more logical reward mechanism.
+                # reward = self.wh_sim.prev_action_time - action_time
+                # Try this: reward is relative action time (i.e. response time)
+                reward = -action_time + self.wh_sim.sim_time
                 self.neural_network.add_reward(reward)
-                # episode_reward += reward
+                self.episode_reward += reward
+                all_reward.append(reward)
 
                 # Log the action time.
                 self.wh_sim.prev_action_time = action_time
@@ -139,17 +148,15 @@ class TrainGameModel():
                     break
 
             # Adjust the learning rate.
-            self.epsiode_count = self.epsiode_count + 1  # self.epsiode_count += 1
-            if self.epsiode_count % self.change_count == 0:
-                self.lr = self.lr*self.lr_decay
-                # self.change_count = 500
-                self.epsiode_count = 0
+            if i_episode % self.change_count == 0:
+                self.lr = self.lr * self.lr_decay
 
             # Perform a training step for the neural network.
             self.neural_network.train_step(self.lr)
 
             # Append the episode's time to the list of all times.
             all_episode_times.append(self.wh_sim.sim_time)
+            all_episode_rewards.append(self.episode_reward)
 
             # Print the order register for inspection.
             in_dens, out_dens = self.wh_sim.GetShelfAccessDensities(
@@ -159,10 +166,14 @@ class TrainGameModel():
             print(f"Finished ep. {i_episode + 1}/{train_episodes}.")
             print(f"""Episode time: {self.wh_sim.sim_time}
                       \rMin. episode time so far: {min(all_episode_times)}
+                      \rEpisode reward sum: {self.episode_reward}
+                      \rMax. episode reward: {max(all_reward)}
+                      \rMin. episode reward: {min(all_reward)}
                       \rLearning rate: {self.lr}
                       \rInfeed orders: {infeed_count}
                       \rOutfeed orders: {outfeed_count}
                       \r""")
+            # print(f"all rewards: {[round(reward, 1) for reward in all_reward]}")
 
         # Training is done here, display the time taken.
         # dt = datetime.now()
@@ -177,12 +188,110 @@ class TrainGameModel():
 
         # Print the average episode time. Shorter is better.
         # print("Average episode time:", np.mean(self.wh_sim.all_episode_times), "Variance episode times:", np.var(self.wh_sim.all_episode_times), "Standard deviation episode times:", np.std(self.wh_sim.all_episode_times) )
-        self.DrawResults(all_episode_times)
+        # self.DrawResults(all_episode_rewards)
         # self.DrawAccessDensity(in_dens)
         # self.DrawAccessDensity(out_dens)
 
         # Print a matrix that shows the order in which shelves were filled. Infeed only!
-        self.DrawAccessOrder()
+        # self.DrawAccessOrder()
+        self.SaveExperimentResults(train_episodes, all_episode_rewards)
+
+    def RunBenchmark(self, n_iterations, benchmark_policy="random"):
+        self.startTime = datetime.now()
+        all_episode_times = []
+        all_episode_rewards = []
+        for iter_i in range(n_iterations):
+            # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
+            self.wh_sim.ResetState(random_fill_percentage=0.0)
+
+            # Reset local variables.
+            self.episode_reward = 0.0
+            all_action = []
+            all_reward = []
+            infeed_count = 0
+            outfeed_count = 0
+
+            while True:
+                # Increase the sim_time by some amount here.
+                # In order to recreate the Lei Luo paper results, new orders should start when the
+                # vertical transporter becomes available.
+                self.wh_sim.sim_time = self.wh_sim.agent_busy_till['vt']
+
+                # Store the number of free and occupied locations.
+                free_and_occ = (np.count_nonzero(~self.wh_sim.shelf_occupied),
+                                np.count_nonzero(self.wh_sim.shelf_occupied))
+
+                # Generate a new order.
+                self.wh_sim.order_system.GenerateNewOrder(
+                    order_type="infeed", item_type=1, current_time=self.wh_sim.sim_time)
+
+                # Pick an order from one of the queues. Also, check if order is possible given
+                # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
+                next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
+                    self.wh_sim.sim_time, free_and_occ, False)
+                # Assume we're benchmarking the infeed-only scenario.
+                infeed = True
+
+                # Calculate a new RTM.
+                self.wh_sim.CalcRTM()
+
+                # Get an action given the defined benchmark policy.
+                action = self.wh_sim.GetNextBenchmarkPolicyShelfId(bench_pol=benchmark_policy)
+                infeed_count += 1
+
+                all_action.append(action)
+                # Have the selected action get executed by the warehouse sim.
+                try:
+                    # Process the action, returns the time at which the action is done.
+                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+                except Exception:
+                    # TODO: Make sure the system doesn't generate illegal orders.
+                    print("Picking random action from available shelves.")
+                    print(f"free IDs: {self.wh_sim.GetIds(True)}")
+                    # print(f"Free locs: {free_locs}")
+                    print(next_order)
+                    self.wh_sim.PrintOccupancy()
+                    av_ids = self.wh_sim.GetIds(infeed)
+                    action = random.choice(av_ids)
+                    # Process the action, returns the time at which the action is done.
+                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+
+                # Finish and log the executed order.
+                finish_time = action_time
+                self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
+
+                # Calculate and log the reward.
+                reward = -action_time + self.wh_sim.sim_time
+                self.episode_reward += reward
+                all_reward.append(reward)
+
+                # Log the action time.
+                self.wh_sim.prev_action_time = action_time
+
+                if is_end:
+                    break
+
+            # Append the iteration's time to the list of all times.
+            all_episode_times.append(self.wh_sim.sim_time)
+            all_episode_rewards.append(self.episode_reward)
+
+            # Print iteration meta info.
+            print(f"Finished it. {iter_i + 1}/{n_iterations}.")
+            print(f"""Episode time: {self.wh_sim.sim_time}
+                      \rMin. episode time so far: {min(all_episode_times)}
+                      \rEpisode reward sum: {self.episode_reward}
+                      \rMax. episode reward: {max(all_reward)}
+                      \rMin. episode reward: {min(all_reward)}
+                      \rInfeed orders: {infeed_count}
+                      \rOutfeed orders: {outfeed_count}
+                      \r""")
+
+        self.endTime = datetime.now()
+        t_seconds = (self.endTime - self.startTime).total_seconds()
+        print(
+            f"Time taken: {t_seconds} seconds. Episodes/second: {round(n_iterations / t_seconds, 2)}")
+
+        self.SaveExperimentResults(n_iterations, all_episode_rewards, exp_name="Benchmark")
 
     def SaveBestModel(self):
         # Determine whether to save as a new model based on the principle of least total time consumption
@@ -229,23 +338,23 @@ class TrainGameModel():
                 val = order_matrix[j, i]
                 ax.text(i, j, str(val), va='center', ha='center')
 
+        # Save before show. When show is called, the fig is removed from mem.
+        plt.savefig("storage order.jpg")
         plt.show()
 
-        # occupied_locs = self.wh_sim.shelf_occupied.transpose((1, 0, 2))
-        # occupied_locs = occupied_locs.reshape((dims[0] * dims[1], dims[2]))
-        # occupied_locs = occupied_locs.transpose(1, 0).flatten().tolist()
-
-    def DrawResults(self, all_episode_times):
+    def DrawResults(self, all_episode_rewards):
         # Drawing
         print("DrawResults")
 
         plt.figure()
-        plt.title("AC algorithm on SBS/RS")
-        plt.xlabel("training rounds")
-        plt.ylabel("spent time")
-        plt.plot(all_episode_times, color="g")
+        plt.title("Storage performance")
+        plt.xlabel("Nr. of training episodes")
+        plt.ylabel("Cumulative order fulfillment time")
+        all_episode_rewards = [-reward for reward in all_episode_rewards]
+        plt.plot(all_episode_rewards, color="g")
+        plt.savefig("performance trajectory.jpg")
 
-        mean_list = [np.mean(all_episode_times)] * len(all_episode_times)
+        mean_list = [np.mean(all_episode_rewards)] * len(all_episode_rewards)
         plt.figure()
         plt.title("Training loss (limited at 50 and -50)")
         loss_list = self.neural_network.getLossValue()
@@ -257,12 +366,13 @@ class TrainGameModel():
 
         plt.plot(loss_list)
 
-        zero_list = [0] * len(all_episode_times)
+        zero_list = [0] * len(all_episode_rewards)
         plt.plot(zero_list, linestyle='--', color="k")
+        plt.savefig("training loss trajectory.jpg")
         plt.show()
 
     # TODO: Finish method for saving experiment results and metadata.
-    def SaveExperimentResults(self):
+    def SaveExperimentResults(self, nr_of_episodes, all_episode_rewards, exp_name=None):
         """Method for saving the parameters and results of an experiment to a folder."""
         # Navigate to the experiment folder, create the folder for this run.
         # Go up two levels to the 'Thesis' folder.
@@ -283,7 +393,10 @@ class TrainGameModel():
         nr_files = len(os.listdir())
         # fin_time = f"{datetime.now().hour}.{datetime.now().minute}.{datetime.now().second}"
         # Set the experiment's folder's name.
-        ex_dir = f"Exp. {nr_files + 1}"  # ", t_fin = {fin_time}"
+        if exp_name is not None:
+            ex_dir = exp_name + " " + str(nr_files + 1)
+        else:
+            ex_dir = f"Exp. {nr_files + 1}"  # ", t_fin = {fin_time}"
         try:
             os.mkdir(ex_dir)
         except FileExistsError:
@@ -293,16 +406,24 @@ class TrainGameModel():
 
         # Begin writing experiment summary/metadata.
         run_time = self.endTime - self.startTime
-        run_time = run_time.strftime('%y-%m-%d %I:%M:%S %p')
+        # run_time = run_time.strftime('%y-%m-%d %I:%M:%S %p')
         self.startTime = self.startTime.strftime('%y-%m-%d %I:%M:%S %p')
         self.endTime = self.endTime.strftime('%y-%m-%d %I:%M:%S %p')
         with open(f"{ex_dir} summary.txt", 'w') as f:
             f.write(f"Description of experiment {nr_files + 1}.\n\n")
             f.write(
-                f"Started: {self.startTime}. Finished: {self.endTime}. Run time: {run_time}\n")
-            f.write(f"")
+                f"Started: {self.startTime}. Finished: {self.endTime}. Run time: {run_time}\n\n")
+            f.write(f"Dimensions: {self.wh_sim.dims}\n")
+            f.write(f"Episode length: {self.wh_sim.episode_length}\n")
+            f.write(f"Number of historical RTMs: {self.wh_sim.num_historical_rtms}\n")
+            f.write(f"Number of episodes: {nr_of_episodes}\n")
+            f.write(f"Learning rate: {self.lr}\n")
+            f.write(f"Learning rate decay: {self.lr_decay}, every {self.change_count} episodes\n")
+        f.close()
 
         # Save the figures.
+        self.DrawResults(all_episode_rewards)
+        self.DrawAccessOrder()
 
 
 def main():
@@ -319,9 +440,22 @@ def main():
                 episode_length,
                 num_hist_rtms=num_hist_rtms)
 
-    train_episodes = 100  # This value exceeding 5000 is not recommended
+    train_episodes = 5  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
-    train_plant_model.RunTraining(train_episodes)
+    # Train the network; regular operation.
+    # train_plant_model.RunTraining(train_episodes)
+
+    # Benchmarks: run one at a time, still a work in progress. Note: be aware of the fact that plots
+    # are saved locally! See SaveExperimentResults()
+    # train_plant_model.RunBenchmark(10, benchmark_policy='random')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='eps_greedy')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='col_by_col')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='col_by_col_alt')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='floor_by_floor')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='floor_by_floor_alt')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='rfc_policy')
+    # train_plant_model.RunBenchmark(10, benchmark_policy='crf_policy')
     # sys.exit("training end")
 
 

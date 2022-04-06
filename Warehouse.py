@@ -89,7 +89,7 @@ class Warehouse():
         # sequence of agents to acess to each shelf, with access time
         self.shelf_access_sequence = {}
 
-        # Count the number of storage/retrieval actions.
+        # Count the number of storage/retrieval actions/orders.
         self.action_counter = 0
 
         # Initiate the order system.
@@ -113,6 +113,53 @@ class Warehouse():
                     self.shelf_rfc[i] = (r, f, c)
 
                     i += 1
+
+        # Variables used in benchmarking
+        # TODO: this can be done neater, with recursion. Specify policy type, adjust recursion order.
+        # Order in which shelves are accessed for col_by_col policy.
+        # !!!: Assumption: we access floors in order, not randomly.
+        self.cbc_normal_shelf_sequence = []
+        for r in range(self.num_rows):
+            for c in range(self.num_cols):
+                for f in range(self.num_floors):
+                    self.cbc_normal_shelf_sequence.append(self.shelf_id[r, f, c])
+
+        # Order in which shelves are accessed for col_by_col_alt policy.
+        # !!!: Assumption: we access floors in order, not randomly.
+        self.cbc_alt_shelf_sequence = []
+        for c in range(self.num_cols):
+            for f in range(self.num_floors):
+                for r in range(self.num_rows):
+                    self.cbc_alt_shelf_sequence.append(self.shelf_id[r, f, c])
+
+        # Order in which shelves are accessed for tier_by_tier policy.
+        # !!!: Assumption: we access columns in order, not randomly.
+        self.fbf_normal_shelf_sequence = []
+        for f in range(self.num_floors):
+            for r in range(self.num_rows):
+                for c in range(self.num_cols):
+                    self.fbf_normal_shelf_sequence.append(self.shelf_id[r, f, c])
+
+        # Order in which shelves are accessed for tier_by_tier_alt policy.
+        # !!!: Assumption: we access floors in order, not randomly.
+        self.fbf_alt_shelf_sequence = []
+        for f in range(self.num_floors):
+            for c in range(self.num_cols):
+                for r in range(self.num_rows):
+                    self.fbf_alt_shelf_sequence.append(self.shelf_id[r, f, c])
+
+        # Given that there are 6 combinations of r, f and c, here are the last two:
+        self.rfc_sequence = []
+        for r in range(self.num_rows):
+            for f in range(self.num_floors):
+                for c in range(self.num_cols):
+                    self.rfc_sequence.append(self.shelf_id[r, f, c])
+
+        self.crf_sequence = []
+        for c in range(self.num_cols):
+            for r in range(self.num_rows):
+                for f in range(self.num_floors):
+                    self.crf_sequence.append(self.shelf_id[r, f, c])
 
     def ResetState(self, random_fill_percentage=None):
         """Initiate the state for a new training episode."""
@@ -333,8 +380,8 @@ class Warehouse():
 
     def ProcessAction(self, infeed, selected_shelf_id=None, rfc=None):
         """
-        Perform an infeed/outfeed action. Used to be two functions 'Infeed' and
-        'Outfeed' but this seemed neater.
+        Perform an infeed/outfeed action. The returned action_time includes the time needed for
+        prepositioning agents. Used to be two functions 'Infeed' and 'Outfeed' but this seemed neater.
 
         Parameters:
 
@@ -420,7 +467,7 @@ class Warehouse():
 
     def PrintRTM(self):
         """Print the correctly oriented response time matrix."""
-        print(np.flip(self.rtm, axis=1))
+        print(np.flip(self.rtm.round(2), axis=1))
 
     def PrintIdMatrix(self, print_it=True):
         """Prints the warehouse with each shelf containing its shelf_id."""
@@ -435,10 +482,38 @@ class Warehouse():
 
     def PrintOccupancy(self):
         """Print the correctly oriented occupancy matrix."""
-
         print(np.flip(self.shelf_occupied, axis=1))
 
-    def GetRandomShelfId(self, infeed=True) -> int:
+    def GetNextBenchmarkPolicyShelfId(self, bench_pol="random", eps=0.1) -> np.int16:
+        """Get the next shelf ID according to a benchmark policy. Possible benchmark policies are
+        'random', 'greedy', 'eps_greedy', 'col_by_col', 'col_by_col_alt', 'floor_by_floor' and
+        'floor_by_floor_alt'. Only meant for benchmarking infeed-only scenarios."""
+
+        if bench_pol == 'random':
+            return self.GetRandomShelfId(infeed=True)
+        elif bench_pol == 'greedy':
+            return self.GetGreedyShelfId(infeed=True)
+        elif bench_pol == 'eps_greedy':
+            return self.GetEpsGreedyShelfId(infeed=True, eps=eps)
+
+        elif bench_pol == 'col_by_col':
+            return self.cbc_normal_shelf_sequence[self.action_counter]
+        elif bench_pol == 'col_by_col_alt':
+            return self.cbc_alt_shelf_sequence[self.action_counter]
+        elif bench_pol == 'floor_by_floor':
+            return self.fbf_normal_shelf_sequence[self.action_counter]
+        elif bench_pol == 'floor_by_floor_alt':
+            return self.fbf_alt_shelf_sequence[self.action_counter]
+
+        elif bench_pol == 'rfc_policy':
+            return self.rfc_sequence[self.action_counter]
+        elif bench_pol == 'crf_policy':
+            return self.crf_sequence[self.action_counter]
+
+        else:
+            ValueError(f"There is no benchmark policy called '{bench_pol}'.")
+
+    def GetRandomShelfId(self, infeed=True) -> np.int16:
         """Return a shelf ID randomly picked from the available IDs."""
         # Pick a random location you can infeed to.
         if infeed:
@@ -448,7 +523,7 @@ class Warehouse():
             rfc = self.rng.choice(np.argwhere(self.shelf_occupied == 1).tolist(), axis=0)
         return int(self.shelf_id[rfc[0], rfc[1], rfc[2]])
 
-    def GetGreedyShelfId(self, infeed=True) -> int:
+    def GetGreedyShelfId(self, infeed=True) -> np.int16:
         """Return a shelf ID that has the lowest response time."""
         candidate_ids = self.GetIds(want_free_ids=infeed)
 
@@ -465,7 +540,7 @@ class Warehouse():
                 shelf_id = c_id
         return shelf_id
 
-    def GetEpsGreedyShelfId(self, infeed=True, eps=0.1) -> int:
+    def GetEpsGreedyShelfId(self, infeed=True, eps=0.1) -> np.int16:
         """Return a shelf ID that has the lowest response time with prob. (1-eps), else return a
         random ID."""
         candidate_ids = self.GetIds(want_free_ids=infeed)
@@ -482,9 +557,9 @@ class Warehouse():
         for _id in range(self.num_locs):
             (r, f, c) = self.shelf_rfc[_id]
             if self.shelf_occupied[r, f, c]:
-                occ_ids.append(_id)
+                occ_ids.append(np.int16(_id))
             else:
-                free_ids.append(_id)
+                free_ids.append(np.int16(_id))
         return free_ids if want_free_ids else occ_ids
 
     def SetRandomOccupancy(self, fill_percentage=0.5):
@@ -567,6 +642,7 @@ class Warehouse():
     # print(test_wh.GetRandomShelfId())
 
     # test_wh.CalcRTM()
+    # test_wh.PrintRTM()
 
     # for i in range(10000):
     #     test_wh.CalcRTM()
