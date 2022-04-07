@@ -2,6 +2,7 @@ import sys
 import os
 import random
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import ImageGrid
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
@@ -20,11 +21,11 @@ class TrainGameModel():
             wh.num_locs)
 
         self.endTime = 0
-        self.lr = 1.e-4
+        self.lr = 2.e-4
         self.lr_decay = 0.9
         self.episode_reward = 0.0
         self.epsiode_count = 0
-        self.change_count = 400
+        self.change_count = 200
 
     def RunTraining(self, train_episodes):
         self.startTime = datetime.now()
@@ -159,11 +160,12 @@ class TrainGameModel():
             all_episode_rewards.append(self.episode_reward)
 
             # Print the order register for inspection.
-            in_dens, out_dens = self.wh_sim.GetShelfAccessDensities(
-                normalized=False, print_it=False)
+            # To use: slice access_densities with indices [0, :] and [1, :].
+            access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
 
             # Print episode training meta info.
             print(f"Finished ep. {i_episode + 1}/{train_episodes}.")
+            print(f"Cumulative order fulfillment time: {-round(self.episode_reward, 2)}\n")
             print(f"""Episode time: {self.wh_sim.sim_time}
                       \rMin. episode time so far: {min(all_episode_times)}
                       \rEpisode reward sum: {self.episode_reward}
@@ -176,9 +178,7 @@ class TrainGameModel():
             # print(f"all rewards: {[round(reward, 1) for reward in all_reward]}")
 
         # Training is done here, display the time taken.
-        # dt = datetime.now()
         self.endTime = datetime.now()  # dt.strftime('%y-%m-%d %I:%M:%S %p')
-        # print("Start time", self.startTime, "End time", self.endTime)
         t_seconds = (self.endTime - self.startTime).total_seconds()
         print(
             f"Time taken: {t_seconds} seconds. Episodes/second: {round(train_episodes / t_seconds, 2)}")
@@ -277,21 +277,28 @@ class TrainGameModel():
 
             # Print iteration meta info.
             print(f"Finished it. {iter_i + 1}/{n_iterations}.")
-            print(f"""Episode time: {self.wh_sim.sim_time}
-                      \rMin. episode time so far: {min(all_episode_times)}
-                      \rEpisode reward sum: {self.episode_reward}
-                      \rMax. episode reward: {max(all_reward)}
-                      \rMin. episode reward: {min(all_reward)}
-                      \rInfeed orders: {infeed_count}
-                      \rOutfeed orders: {outfeed_count}
-                      \r""")
+            print(f"Cumulative order fulfillment time: {-round(self.episode_reward, 2)}\n")
+            # print(f"""Episode time: {self.wh_sim.sim_time}
+            #           \rMin. episode time so far: {min(all_episode_times)}
+            #           \rEpisode reward sum: {self.episode_reward}
+            #           \rMax. episode reward: {max(all_reward)}
+            #           \rMin. episode reward: {min(all_reward)}
+            #           \rInfeed orders: {infeed_count}
+            #           \rOutfeed orders: {outfeed_count}
+            #           \r""")
+
+        # For the stochastic benchmarks, also output an average time.
+        if benchmark_policy == ("random" or "eps_greedy"):
+            avg_cumul_time = -round(sum(all_episode_rewards) / len(all_episode_rewards), 2)
+            print(f"Average cumulative order fulfillment time: {avg_cumul_time}\n")
 
         self.endTime = datetime.now()
         t_seconds = (self.endTime - self.startTime).total_seconds()
         print(
-            f"Time taken: {t_seconds} seconds. Episodes/second: {round(n_iterations / t_seconds, 2)}")
+            f"Time taken: {t_seconds} seconds. Episodes/second: {round(n_iterations / t_seconds, 2)}\n\n")
 
-        self.SaveExperimentResults(n_iterations, all_episode_rewards, exp_name="Benchmark")
+        self.SaveExperimentResults(n_iterations, all_episode_rewards,
+                                   exp_name=benchmark_policy)
 
     def SaveBestModel(self):
         # Determine whether to save as a new model based on the principle of least total time consumption
@@ -301,74 +308,101 @@ class TrainGameModel():
             self.neural_network.save_model(savePath)  # 保存模型
 
     # TODO: Improve this function: subplots, titles, correctly oriented.
-    def DrawAccessDensity(self, density_matrix):
+    def DrawAccessDensity(self, access_densities):
         """Draw the access densities for shelves given infeed and outfeed order counts."""
         dims = self.wh_sim.dims
-        density_matrix = np.reshape(density_matrix, (dims[0] * dims[1], dims[2]))
+        in_dens = np.reshape(access_densities[0], (dims[0] * dims[1], dims[2]))
+        out_dens = np.reshape(access_densities[1], (dims[0] * dims[1], dims[2]))
 
         plt.figure()
-        plt.imshow(density_matrix, cmap="CMRmap")
+        # plt.imshow(density_matrix, cmap="CMRmap")
         plt.colorbar()
         plt.show()
 
-    def DrawAccessOrder(self):
+    def DrawAccessOrder(self, all_episode_rewards, exp_name=None):
         """Draw a warehouse-like matrix where each entry denotes when that shelf was filled."""
         dims = self.wh_sim.dims
         orders = self.wh_sim.order_system.order_register
         order_matrix = np.zeros((dims[0], dims[1], dims[2]), dtype=int)
-        id_matrix = np.zeros_like(order_matrix)
 
         for (order_id, order_data) in orders.items():
             (r, f, c) = self.wh_sim.shelf_rfc[order_data['shelf_id']]
             order_matrix[r, f, c] = order_id
-            id_matrix[r, f, c] = order_data['shelf_id']
 
         order_matrix = np.reshape(order_matrix, (dims[0] * dims[1], dims[2]))
-        # id_matrix = id_matrix.transpose((1, 0, 2))
-        id_matrix = np.reshape(id_matrix, (dims[0] * dims[1], dims[2]))
-        # id_matrix = id_matrix.transpose(1, 0)
-        # print(id_matrix)
 
-        fig, ax = plt.subplots()
+        halfway_point = int(dims[0] * dims[1] / 2)
+        left_order_matrix = order_matrix[0:halfway_point, :]
+        right_order_matrix = order_matrix[halfway_point:, :]
 
-        ax.matshow(order_matrix)
+        fig = plt.figure()
+        grid = ImageGrid(fig, 111,
+                         nrows_ncols=(1, 2),
+                         axes_pad=0.15,
+                         share_all=True,
+                         cbar_location='right',
+                         cbar_mode='single',
+                         cbar_size='7%',
+                         cbar_pad=0.15)
 
-        for j in range(dims[0] * dims[1]):
-            for i in range(dims[2]):
-                val = order_matrix[j, i]
-                ax.text(i, j, str(val), va='center', ha='center')
+        # Fill both subplots.
+        matrices = [left_order_matrix, right_order_matrix]
+        for idx, ax in enumerate(grid):
+            im = ax.matshow(matrices[idx])
+            ax.set_title(f"{'Left' if idx == 0 else 'Right'} side")
+            ax.invert_yaxis()
+            # Set the order number in its respective shelf.
+            for j in range(halfway_point):
+                for i in range(dims[2]):
+                    val = matrices[idx][j, i]
+                    ax.text(i, j, str(val), va='center', ha='center')
+
+        ax.cax.colorbar(im)
+        ax.cax.toggle_label(True)
+
+        avg_cumul_time = -round(sum(all_episode_rewards) / len(all_episode_rewards), 2)
 
         # Save before show. When show is called, the fig is removed from mem.
+        if exp_name is not None:
+            plt.suptitle("Shelf access order" + f" for {exp_name}. t = {avg_cumul_time}s")
+        else:
+            plt.suptitle("Shelf access order AC network")
         plt.savefig("storage order.jpg")
         plt.show()
 
-    def DrawResults(self, all_episode_rewards):
+    def DrawResults(self, all_episode_rewards, exp_name=None):
         # Drawing
         print("DrawResults")
 
         plt.figure()
-        plt.title("Storage performance")
+        if exp_name is not None:
+            plt.title("Storage performance for " + exp_name)
+        else:
+            plt.title("Storage performance AC network")
         plt.xlabel("Nr. of training episodes")
         plt.ylabel("Cumulative order fulfillment time")
         all_episode_rewards = [-reward for reward in all_episode_rewards]
         plt.plot(all_episode_rewards, color="g")
         plt.savefig("performance trajectory.jpg")
 
-        mean_list = [np.mean(all_episode_rewards)] * len(all_episode_rewards)
-        plt.figure()
-        plt.title("Training loss (limited at 50 and -50)")
-        loss_list = self.neural_network.getLossValue()
-        for i in range(len(loss_list)):
-            if loss_list[i] >= 50:
-                loss_list[i] = 50
-            elif loss_list[i] <= -50:
-                loss_list[i] = -50
+        # mean_list = [np.mean(all_episode_rewards)] * len(all_episode_rewards)
+        if exp_name is None:
+            plt.figure()
+            plt.title("Training loss (limited at 50 and -50) AC network")
+            loss_list = self.neural_network.getLossValue()
+            for i in range(len(loss_list)):
+                if loss_list[i] >= 50:
+                    loss_list[i] = 50
+                elif loss_list[i] <= -50:
+                    loss_list[i] = -50
 
-        plt.plot(loss_list)
+            plt.plot(loss_list)
 
-        zero_list = [0] * len(all_episode_rewards)
-        plt.plot(zero_list, linestyle='--', color="k")
-        plt.savefig("training loss trajectory.jpg")
+            zero_list = [0] * len(all_episode_rewards)
+            plt.plot(zero_list, linestyle='--', color="k")
+            plt.savefig("training loss trajectory.jpg")
+        else:
+            pass
         plt.show()
 
     # TODO: Finish method for saving experiment results and metadata.
@@ -376,6 +410,7 @@ class TrainGameModel():
         """Method for saving the parameters and results of an experiment to a folder."""
         # Navigate to the experiment folder, create the folder for this run.
         # Go up two levels to the 'Thesis' folder.
+        original_dir = os.getcwd()
         os.chdir('../..')
         # Go down to experiments with the original model.
         os.chdir(r"Experiments\LeiLuo's model")
@@ -394,7 +429,7 @@ class TrainGameModel():
         # fin_time = f"{datetime.now().hour}.{datetime.now().minute}.{datetime.now().second}"
         # Set the experiment's folder's name.
         if exp_name is not None:
-            ex_dir = exp_name + " " + str(nr_files + 1)
+            ex_dir = "Benchmark " + str(nr_files + 1) + f" - {exp_name}"
         else:
             ex_dir = f"Exp. {nr_files + 1}"  # ", t_fin = {fin_time}"
         try:
@@ -404,6 +439,8 @@ class TrainGameModel():
 
         os.chdir(ex_dir)  # Now we're ready to store experiment parameters and results.
 
+        avg_cumul_time = -round(sum(all_episode_rewards) / len(all_episode_rewards), 2)
+
         # Begin writing experiment summary/metadata.
         run_time = self.endTime - self.startTime
         # run_time = run_time.strftime('%y-%m-%d %I:%M:%S %p')
@@ -411,19 +448,26 @@ class TrainGameModel():
         self.endTime = self.endTime.strftime('%y-%m-%d %I:%M:%S %p')
         with open(f"{ex_dir} summary.txt", 'w') as f:
             f.write(f"Description of experiment {nr_files + 1}.\n\n")
-            f.write(
-                f"Started: {self.startTime}. Finished: {self.endTime}. Run time: {run_time}\n\n")
+            f.write(f"Start: {self.startTime}. Finish: {self.endTime}. Run time: {run_time}\n\n")
             f.write(f"Dimensions: {self.wh_sim.dims}\n")
             f.write(f"Episode length: {self.wh_sim.episode_length}\n")
             f.write(f"Number of historical RTMs: {self.wh_sim.num_historical_rtms}\n")
             f.write(f"Number of episodes: {nr_of_episodes}\n")
             f.write(f"Learning rate: {self.lr}\n")
-            f.write(f"Learning rate decay: {self.lr_decay}, every {self.change_count} episodes\n")
+            f.write(f"Learning rate decay: {self.lr_decay}, every {self.change_count} episodes\n\n")
+
+            f.write(f"Average cumulative order fulfillment time: {avg_cumul_time}")
         f.close()
 
-        # Save the figures.
-        self.DrawResults(all_episode_rewards)
-        self.DrawAccessOrder()
+        # Save the figures for stochastic benchmarks
+        if exp_name in ('random', 'eps_greedy'):
+            self.DrawResults(all_episode_rewards, exp_name=exp_name)
+        else:
+            pass
+        self.DrawAccessOrder(all_episode_rewards, exp_name=exp_name)
+
+        # Return to the original directory in case we're executing multiple benchmarks in sequence.
+        os.chdir(original_dir)
 
 
 def main():
@@ -440,22 +484,22 @@ def main():
                 episode_length,
                 num_hist_rtms=num_hist_rtms)
 
-    train_episodes = 5  # This value exceeding 5000 is not recommended
+    train_episodes = 1000  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
     # Train the network; regular operation.
     # train_plant_model.RunTraining(train_episodes)
 
     # Benchmarks: run one at a time, still a work in progress. Note: be aware of the fact that plots
     # are saved locally! See SaveExperimentResults()
-    # train_plant_model.RunBenchmark(10, benchmark_policy='random')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='greedy')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='eps_greedy')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='col_by_col')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='col_by_col_alt')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='floor_by_floor')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='floor_by_floor_alt')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='rfc_policy')
-    # train_plant_model.RunBenchmark(10, benchmark_policy='crf_policy')
+    train_plant_model.RunBenchmark(50, benchmark_policy='random')
+    train_plant_model.RunBenchmark(1, benchmark_policy='greedy')
+    train_plant_model.RunBenchmark(50, benchmark_policy='eps_greedy')
+    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col')
+    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col_alt')
+    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor')
+    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor_alt')
+    train_plant_model.RunBenchmark(1, benchmark_policy='rfc_policy')
+    train_plant_model.RunBenchmark(1, benchmark_policy='crf_policy')
     # sys.exit("training end")
 
 
