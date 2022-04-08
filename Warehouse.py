@@ -423,7 +423,7 @@ class Warehouse():
         action_time = self.sim_time
 
         # Add each agent's contribution to the total action time.
-        for agent in agents:
+        for idx, agent in enumerate(agents):
             # Calculate the agent travel time.
             agent_travel_time = self.CalcAgentTravelTime(agent, pth[0], pth[1])
 
@@ -432,6 +432,14 @@ class Warehouse():
                 action_time, self.agent_busy_till[agent]) + agent_travel_time
 
             # Set the new busy time of this agent.
+            # If it is the first agent in the sequence, then it is either busy until it reaches its
+            # destination, or until the second agent arrives at the handover point, whichever one is
+            # larger.
+            if idx == 0:
+                self.agent_busy_till[agent] = np.max(action_time, self.agent_busy_till[agents[1]])
+            # If it is the second agent in the sequence, there is no next agent it could potentially
+            # wait for, so it will only be busy until it is done with the action.
+            else:
             self.agent_busy_till[agent] = action_time
 
             # Set the agent's location at the end of this action. Note that action_time here relates
