@@ -440,7 +440,7 @@ class Warehouse():
             # If it is the second agent in the sequence, there is no next agent it could potentially
             # wait for, so it will only be busy until it is done with the action.
             else:
-            self.agent_busy_till[agent] = action_time
+                self.agent_busy_till[agent] = action_time
 
             # Set the agent's location at the end of this action. Note that action_time here relates
             # to each agent individually, and not to the total action time. Otherwise the involved
