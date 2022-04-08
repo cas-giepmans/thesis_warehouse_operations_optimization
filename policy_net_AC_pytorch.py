@@ -337,7 +337,7 @@ class PolicyValueNet:  # Create neural networks and train neural networks
     def add_reward(self, this_reward):
         self.rewards.append(this_reward)
 
-    def train_step(self, lr):
+    def train_step(self, lr, discount_factor):
         """
         Training code. Calculates actor and critic loss and performs backprop.
         """
@@ -349,20 +349,10 @@ class PolicyValueNet:  # Create neural networks and train neural networks
 
         # calculate the true value using rewards returned from the environment
 
-        parser = argparse.ArgumentParser(description='PyTorch actor-critic example')
-        parser.add_argument('--gamma', type=float, default=0.99, metavar='G',
-                            help='discount factor (default: 0.99)')
-        parser.add_argument('--seed', type=int, default=543, metavar='N',
-                            help='random seed (default: 543)')
-        parser.add_argument('--render', action='store_true',
-                            help='render the environment')
-        parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                            help='interval between training status logs (default: 10)')
-        args = parser.parse_args()
-
+        # Iterate backwards over the rewards.
         for r in self.rewards[::-1]:
             # calculate the discounted value
-            R = r + args.gamma * R
+            R = r + discount_factor * R
             returns.insert(0, R)
 
         returns = torch.tensor(returns)
@@ -370,6 +360,9 @@ class PolicyValueNet:  # Create neural networks and train neural networks
         # Subtract from the rewards their mean, then divide by their stdev + epsilon.
         returns = (returns - returns.mean()) / (returns.std() + eps)
 
+        # Below, log_prob is the probability of an action in the categorical distribution,
+        # value is the value of the state as given by the Critic network,
+        # R is the normalized, discounted reward as observed in the simulation.
         for (log_prob, value), R in zip(saved_actions, returns):
             advantage = R - value.item()
             # print("R:", R)
@@ -378,8 +371,11 @@ class PolicyValueNet:  # Create neural networks and train neural networks
             # calculate actor (policy) loss
             policy_losses.append(-log_prob * advantage)
 
+            # FIX: warning keeps appearing.
             warnings.simplefilter(action='ignore', category=UserWarning)
             # calculate critic (value) loss using L1 smooth loss
+            # FIX: They don't use torch.nn.MSEloss like they told us over email.
+            # value_losses.append(F.mse_loss(value, torch.tensor([R])))  # I added this.
             value_losses.append(F.smooth_l1_loss(value, torch.tensor([R])))
 
         # reset gradients
@@ -390,6 +386,9 @@ class PolicyValueNet:  # Create neural networks and train neural networks
         loss = torch.stack(policy_losses).sum() + torch.stack(value_losses).sum()
 
         self.lossValue.append(loss.detach().numpy().tolist())
+        # print(f"loss value: {loss}")
+        # print(f"policy loss: {torch.stack(policy_losses).sum()}")
+        # print(f"value loss: {torch.stack(value_losses).sum()}")
         # perform backprop
         loss.backward()
         self.optimizer.step()

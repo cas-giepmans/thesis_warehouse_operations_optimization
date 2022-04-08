@@ -1,4 +1,3 @@
-import sys
 import os
 import random
 import matplotlib.pyplot as plt
@@ -7,7 +6,6 @@ from policy_net_AC_pytorch import PolicyValueNet as trainNet
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
 from datetime import date, datetime
-from pathlib import Path
 
 
 class TrainGameModel():
@@ -21,11 +19,12 @@ class TrainGameModel():
             wh.num_locs)
 
         self.endTime = 0
-        self.lr = 2.e-4
+        self.lr = 1.e-4
         self.lr_decay = 0.9
+        self.discount_factor = 0.99
         self.episode_reward = 0.0
         self.epsiode_count = 0
-        self.change_count = 200
+        self.change_count = 400
 
     def RunTraining(self, train_episodes):
         self.startTime = datetime.now()
@@ -153,14 +152,14 @@ class TrainGameModel():
                 self.lr = self.lr * self.lr_decay
 
             # Perform a training step for the neural network.
-            self.neural_network.train_step(self.lr)
+            self.neural_network.train_step(self.lr, self.discount_factor)
 
             # Append the episode's time to the list of all times.
             all_episode_times.append(self.wh_sim.sim_time)
             all_episode_rewards.append(self.episode_reward)
 
             # Print the order register for inspection.
-            # To use: slice access_densities with indices [0, :] and [1, :].
+            # To use: slice access_densities with indices [0] and [1].
             access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
 
             # Print episode training meta info.
@@ -180,20 +179,11 @@ class TrainGameModel():
         # Training is done here, display the time taken.
         self.endTime = datetime.now()  # dt.strftime('%y-%m-%d %I:%M:%S %p')
         t_seconds = (self.endTime - self.startTime).total_seconds()
-        print(
-            f"Time taken: {t_seconds} seconds. Episodes/second: {round(train_episodes / t_seconds, 2)}")
+        print(f"Time taken: {t_seconds}s. Episodes/second: {round(train_episodes / t_seconds, 2)}")
 
-        # TODO: Write a function for exporting the order_register to a csv file. Would be good to
-        # see shelf access density.
+        # TODO: Write a function for exporting the order_register to a csv file. Would be good to see shelf access density.
 
-        # Print the average episode time. Shorter is better.
-        # print("Average episode time:", np.mean(self.wh_sim.all_episode_times), "Variance episode times:", np.var(self.wh_sim.all_episode_times), "Standard deviation episode times:", np.std(self.wh_sim.all_episode_times) )
-        # self.DrawResults(all_episode_rewards)
-        # self.DrawAccessDensity(in_dens)
-        # self.DrawAccessDensity(out_dens)
-
-        # Print a matrix that shows the order in which shelves were filled. Infeed only!
-        # self.DrawAccessOrder()
+        # Save all the generated plots. Based on infeed/outfeed order generation, check before run!
         self.SaveExperimentResults(train_episodes, all_episode_rewards)
 
     def RunBenchmark(self, n_iterations, benchmark_policy="random"):
@@ -295,7 +285,7 @@ class TrainGameModel():
         self.endTime = datetime.now()
         t_seconds = (self.endTime - self.startTime).total_seconds()
         print(
-            f"Time taken: {t_seconds} seconds. Episodes/second: {round(n_iterations / t_seconds, 2)}\n\n")
+            f"Time taken: {t_seconds}s. Episodes/second: {round(n_iterations / t_seconds, 2)}\n\n")
 
         self.SaveExperimentResults(n_iterations, all_episode_rewards,
                                    exp_name=benchmark_policy)
@@ -308,6 +298,7 @@ class TrainGameModel():
             self.neural_network.save_model(savePath)  # 保存模型
 
     # TODO: Improve this function: subplots, titles, correctly oriented.
+    # FIXME: Work in progress! Don't use!!
     def DrawAccessDensity(self, access_densities):
         """Draw the access densities for shelves given infeed and outfeed order counts."""
         dims = self.wh_sim.dims
@@ -486,22 +477,22 @@ def main():
                 episode_length,
                 num_hist_rtms=num_hist_rtms)
 
-    train_episodes = 1000  # This value exceeding 5000 is not recommended
+    train_episodes = 10  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
     # Train the network; regular operation.
-    # train_plant_model.RunTraining(train_episodes)
+    train_plant_model.RunTraining(train_episodes)
 
     # Benchmarks: run one at a time, still a work in progress. Note: be aware of the fact that plots
     # are saved locally! See SaveExperimentResults()
-    train_plant_model.RunBenchmark(50, benchmark_policy='random')
-    train_plant_model.RunBenchmark(1, benchmark_policy='greedy')
-    train_plant_model.RunBenchmark(50, benchmark_policy='eps_greedy')
-    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col')
-    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col_alt')
-    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor')
-    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor_alt')
-    train_plant_model.RunBenchmark(1, benchmark_policy='rfc_policy')
-    train_plant_model.RunBenchmark(1, benchmark_policy='crf_policy')
+    # train_plant_model.RunBenchmark(50, benchmark_policy='random')
+    # train_plant_model.RunBenchmark(1, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(50, benchmark_policy='eps_greedy')
+    # train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col')
+    # train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col_alt')
+    # train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor')
+    # train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor_alt')
+    # train_plant_model.RunBenchmark(1, benchmark_policy='rfc_policy')
+    # train_plant_model.RunBenchmark(1, benchmark_policy='crf_policy')
     # sys.exit("training end")
 
 
