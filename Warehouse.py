@@ -605,7 +605,9 @@ class Warehouse():
             print(np.flip(infeed_density.round(2), axis=1))
             print(np.flip(outfeed_density.round(2), axis=1))
 
-        return infeed_density, outfeed_density
+        # Return as a single numpy.ndarray object for convenience.
+        access_densities = np.stack([infeed_density, outfeed_density], axis=0)
+        return access_densities
 
 
 # def main():

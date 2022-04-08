@@ -462,6 +462,8 @@ class TrainGameModel():
         # Save the figures for stochastic benchmarks
         if exp_name in ('random', 'eps_greedy'):
             self.DrawResults(all_episode_rewards, exp_name=exp_name)
+        elif exp_name is None:
+            self.DrawResults(all_episode_rewards)
         else:
             pass
         self.DrawAccessOrder(all_episode_rewards, exp_name=exp_name)
