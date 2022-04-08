@@ -416,7 +416,7 @@ class Warehouse():
         sequence = self.shelf_access_sequence[selected_shelf_id]
 
         # The sequence must be reversed for outfeed response time calculation.
-        agents = sequence.keys() if infeed else reversed(list(sequence.keys()))
+        agents = list(sequence.keys()) if infeed else reversed(list(sequence.keys()))
         pth = (0, selected_shelf_id) if infeed else (selected_shelf_id, 0)
 
         # Initially set the action time (when it finishes) to be the same as the simulation time.
@@ -436,7 +436,8 @@ class Warehouse():
             # destination, or until the second agent arrives at the handover point, whichever one is
             # larger.
             if idx == 0:
-                self.agent_busy_till[agent] = np.max(action_time, self.agent_busy_till[agents[1]])
+                self.agent_busy_till[agent] = np.maximum(
+                    action_time, self.agent_busy_till[agents[1]])
             # If it is the second agent in the sequence, there is no next agent it could potentially
             # wait for, so it will only be busy until it is done with the action.
             else:
@@ -447,11 +448,11 @@ class Warehouse():
             # agents would all be "busy" doing nothing after they finish their part in the action.
             if infeed:
                 if agent == 'vt':
-                    self.agent_location[agent][action_time] = f
+                    self.agent_location[agent][self.agent_busy_till[agent]] = f
                 else:
-                    self.agent_location[agent][action_time] = c
+                    self.agent_location[agent][self.agent_busy_till[agent]] = c
             else:
-                self.agent_location[agent][action_time] = 0
+                self.agent_location[agent][self.agent_busy_till[agent]] = 0
 
         self.shelf_occupied[r, f, c] = True if infeed else False
 
