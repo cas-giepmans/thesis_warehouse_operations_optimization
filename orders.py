@@ -17,7 +17,7 @@ class OrderSystem():
 
     def __init__(self):
 
-        # Order queues (FIFO).
+        # Order queues (FIFO)". They get filled with order IDs.
         self.infeed_queue = Queue()
         self.outfeed_queue = Queue()
 
@@ -153,21 +153,25 @@ class OrderSystem():
             elif not infeed_queue_empty:
                 next_order_id = self.infeed_queue.get()
 
+        # Calculate in-queue time, set start time.
         self.order_register[next_order_id]["time_in_queue"] = (
             current_time - self.order_register[next_order_id]["time_created"])
         self.order_register[next_order_id]["in_queue"] = False
         self.order_register[next_order_id]["time_start"] = current_time
 
+        # Return order ID, order.
         return next_order_id, self.order_register[next_order_id]
 
     def FinishOrder(self, order_id, shelf_id, finish_time):
-        """Complete order, log time and set shelf_id (set None if outfeed)."""
+        """Complete order, log time and set shelf_id (either where the item was stored or from where
+           it got retrieved)."""
         order = self.order_register[order_id]
         order["time_finish"] = finish_time
         order["shelf_id"] = shelf_id
 
     def GetShelfAccessCounts(self) -> dict:
-        """Calculates and returns a dictionary filled with access counts for each shelf_id."""
+        """Calculates and returns two dictionaries (one for infeed, one for outfeed) filled with
+           access counts for each shelf_id."""
         infeed_counts = {}
         outfeed_counts = {}
 
@@ -179,10 +183,11 @@ class OrderSystem():
                 # Try to increase the counter of that shelf.
                 try:
                     infeed_counts[shelf_id] += 1
-                # If we haven't seen this shelf yet, add it, set it's value to 1.
+                # If we haven't seen this shelf yet, add it, then set it's value to 1.
                 except KeyError:
                     infeed_counts[shelf_id] = 1
             elif self.order_register[order_id]['order_type'] == 'outfeed':
+                # Do the same thing as above, but then for outfeed orders.
                 try:
                     outfeed_counts[shelf_id] += 1
                 except KeyError:
@@ -195,12 +200,14 @@ class OrderSystem():
         return infeed_counts, outfeed_counts
 
     def PrintOrderQueues(self):
+        """Print all the orders that are currently queued."""
         for i in list(self.infeed_queue.queue):
             print(self.order_register[i])
         for i in list(self.outfeed_queue.queue):
             print(self.order_register[i])
 
     def PrintOrderRegister(self):
+        """Print the order register, i.e. all orders generated since simulation start."""
         for key, values in self.order_register.items():
             print(f"Order ID: {key}")
             for value in values.keys():
