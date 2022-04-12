@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
+from torchsummary import summary
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
 from datetime import date, datetime
@@ -18,10 +19,11 @@ class TrainGameModel():
             wh.num_locs,  # Number of storage locations.
             wh.num_locs)
 
+        summary(self.neural_network.policy_value_net, input_size=(6, 12, 6))
         self.endTime = 0
-        self.lr = 1.e-4
+        self.lr = 1.e-3
         self.lr_decay = 0.9
-        self.discount_factor = 0.99
+        self.discount_factor = 1.0
         self.episode_reward = 0.0
         self.epsiode_count = 0
         self.change_count = 400
@@ -186,7 +188,7 @@ class TrainGameModel():
         # Save all the generated plots. Based on infeed/outfeed order generation, check before run!
         self.SaveExperimentResults(train_episodes, all_episode_rewards)
 
-    def RunBenchmark(self, n_iterations, benchmark_policy="random"):
+    def RunBenchmark(self, n_iterations, benchmark_policy="random", save_results=False):
         self.startTime = datetime.now()
         all_episode_times = []
         all_episode_rewards = []
@@ -339,7 +341,7 @@ class TrainGameModel():
         # Fill both subplots.
         matrices = [left_order_matrix, right_order_matrix]
         for idx, ax in enumerate(grid):
-            im = ax.matshow(matrices[idx])
+            im = ax.matshow(matrices[idx], vmin=1, vmax=self.wh_sim.num_locs)
             ax.set_title(f"{'Left' if idx == 0 else 'Right'} side")
             ax.invert_yaxis()
             # Set the order number in its respective shelf.
@@ -348,8 +350,10 @@ class TrainGameModel():
                     val = matrices[idx][j, i]
                     ax.text(i, j, str(val), va='center', ha='center')
 
+        # grid.cbar_axes.
         ax.cax.colorbar(im)
         ax.cax.toggle_label(True)
+        # cb = grid.cbar_axes[0].colorbar(im)
 
         avg_cumul_time = -round(sum(all_episode_rewards) / len(all_episode_rewards), 2)
 
@@ -458,6 +462,7 @@ class TrainGameModel():
         else:
             pass
         self.DrawAccessOrder(all_episode_rewards, exp_name=exp_name)
+        # TODO: make it so you can choose to save the figures or not (less clutter in storage).
 
         # Return to the original directory in case we're executing multiple benchmarks in sequence.
         os.chdir(original_dir)
@@ -477,22 +482,22 @@ def main():
                 episode_length,
                 num_hist_rtms=num_hist_rtms)
 
-    train_episodes = 10  # This value exceeding 5000 is not recommended
+    train_episodes = 1  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
     # Train the network; regular operation.
-    train_plant_model.RunTraining(train_episodes)
+    # train_plant_model.RunTraining(train_episodes)
 
     # Benchmarks: run one at a time, still a work in progress. Note: be aware of the fact that plots
     # are saved locally! See SaveExperimentResults()
-    # train_plant_model.RunBenchmark(50, benchmark_policy='random')
-    # train_plant_model.RunBenchmark(1, benchmark_policy='greedy')
-    # train_plant_model.RunBenchmark(50, benchmark_policy='eps_greedy')
-    # train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col')
-    # train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col_alt')
-    # train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor')
-    # train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor_alt')
-    # train_plant_model.RunBenchmark(1, benchmark_policy='rfc_policy')
-    # train_plant_model.RunBenchmark(1, benchmark_policy='crf_policy')
+    train_plant_model.RunBenchmark(50, benchmark_policy='random')
+    train_plant_model.RunBenchmark(1, benchmark_policy='greedy')
+    train_plant_model.RunBenchmark(50, benchmark_policy='eps_greedy')
+    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col')
+    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col_alt')
+    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor')
+    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor_alt')
+    train_plant_model.RunBenchmark(1, benchmark_policy='rfc_policy')
+    train_plant_model.RunBenchmark(1, benchmark_policy='crf_policy')
     # sys.exit("training end")
 
 

@@ -28,7 +28,9 @@ class Warehouse():
             num_cols=8,
             episode_length=1000,
             num_hist_rtms=2,
-            num_hist_occs=2):
+            num_hist_occs=2,
+            vt_speed=None,
+            sh_speed=None):
         """
 
 
@@ -67,10 +69,10 @@ class Warehouse():
         self.num_historical_occs = num_hist_occs
         self.sim_time = 0.0
         self.prev_action_time = 0.0
-        # self.vt_floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
+        # self.floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
         # self.column_travel_time = 1.8 / 1  # 1.8m col width, 1m/s shuttle speed
-        self.vt_floor_travel_time = 1.2 / 1.0
-        self.column_travel_time = 1.2 / 1.0
+        self.floor_travel_time = 1.2 / 1.0 if vt_speed is None else 1.2 / vt_speed
+        self.column_travel_time = 1.2 / 1.0 if sh_speed is None else 1.2 / sh_speed
 
         # Dictionary to store agent schedule.
         # There is a single vertical transporter, it is available after t = 0.
@@ -86,9 +88,6 @@ class Warehouse():
         for f in range(self.num_floors):
             self.agent_location['sh'+str(f)] = {0.0: 0}
 
-        # sequence of agents to acess to each shelf, with access time
-        self.shelf_access_sequence = {}
-
         # Count the number of storage/retrieval actions/orders.
         self.action_counter = 0
 
@@ -98,6 +97,9 @@ class Warehouse():
         # Initiate random number generator.
         self.rng = np.random.default_rng()
 
+        # sequence of agents to acess to each shelf, with access time
+        self.shelf_access_sequence = {}
+
         # Compute time needed to reach the shelf from infeed point
         # (assumes agents are at their default position)
         i = 0  # Initiate shelf ID counter.
@@ -106,7 +108,7 @@ class Warehouse():
             for f in range(self.num_floors):
                 for r in range(self.num_rows):
                     self.shelf_access_sequence[i] = {
-                        'vt': f * self.vt_floor_travel_time,
+                        'vt': f * self.floor_travel_time,
                         'sh'+str(f): (1 + c) * self.column_travel_time}
 
                     self.shelf_id[r, f, c] = i
@@ -161,8 +163,24 @@ class Warehouse():
                 for f in range(self.num_floors):
                     self.crf_sequence.append(self.shelf_id[r, f, c])
 
-    def ResetState(self, random_fill_percentage=None):
-        """Initiate the state for a new training episode."""
+    def ResetState(self, random_fill_percentage=None) -> list:
+        """
+        Resets the warehouse instance's variables, the order system's instance and returns a fresh
+        state array. The state array's availability matrix (bottom matrix) specifies occupied
+        shelves.
+
+        Parameters
+        ----------
+        random_fill_percentage : float, optional
+            If set, the warehouse is randomly filled for the given percentage. The default is None.
+
+        Returns
+        -------
+        fresh_wh_state : list
+            A list of numpy matrices, containing historical RTMs, current RTM and availability
+            matrix.
+
+        """
         self.shelf_occupied = np.zeros(self.dims, dtype=bool)
 
         # If requested, fill the shelves randomly up to a certain percentage.
@@ -191,14 +209,9 @@ class Warehouse():
 
         self.order_system.Reset()
 
-        fresh_wh_state = self.GetState()
+        fresh_wh_state = self.BuildState()
 
         return fresh_wh_state
-
-    # CHECK: is this one really necessary?
-    def GetState(self, infeed=True):
-        """Return the newly built warehouse state."""
-        return self.BuildState(infeed)
 
     # CHECK: don't you need occupancy history?
     def BuildState(self, infeed=True):
@@ -311,7 +324,7 @@ class Warehouse():
 
         Given the ID of a shelf to be accessed and the type of operation, move
         every involved agent to the required starting location and update their
-        busy times accordingly.
+        busy times and locations accordingly.
 
         Parameters.
 
@@ -376,7 +389,7 @@ class Warehouse():
         else:
             _, f_origin, _ = self.shelf_rfc[from_id]
             _, f_target, _ = self.shelf_rfc[to_id]
-            return abs(f_origin - f_target) * self.vt_floor_travel_time
+            return abs(f_origin - f_target) * self.floor_travel_time
 
     def ProcessAction(self, infeed, selected_shelf_id=None, rfc=None):
         """
@@ -473,6 +486,25 @@ class Warehouse():
     def Get_RTM(self, rfc=None):
         """Return the Response Time Matrix (RTM), or an entry from the RTM."""
         return self.rtm if rfc is None else self.rtm[rfc[0], rfc[1], rfc[2]]
+
+    # TODO: finish this method, change agent location logging (for when they stand still)
+    # def GetActionLocation(self, agent, time):
+    #     """Return the specified agent's location at the specified time. Can be called anytime."""
+    #     if type(agent) is not str or type(time) is not float:
+    #         raise TypeError("Arguments 'agent' and 'time' should be of types str and float!")
+    #     elif agent not in self.agent_location.keys():
+    #         raise ValueError(f"Agent '{agent}' does not exist!")
+
+    #     location = 0.0
+
+    #     try:
+    #         # See if the specified time is
+    #         location = self.agent_location[agent][time]
+    #     except KeyError:
+    #         # There is no location for the agent at that time, so it is travelling between points.
+    #         # Start by looking at the latest entry in the location dictionary, work your way towards
+    #         # the beginning until you find a time that is smaller than the specified time.
+    #     return location
 
     def PrintRTM(self):
         """Print the correctly oriented response time matrix."""
