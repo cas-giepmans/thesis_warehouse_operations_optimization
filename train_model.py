@@ -48,7 +48,7 @@ class TrainGameModel():
 
             while True:
                 # Increase the sim_time by some amount here.
-                # TODO: set it to be larger than num_floors * shortest response time.
+                # TODO: Create a mechanism for stochasticall (?) increasing simulation time.
                 # self.wh_sim.sim_time += 10.0
 
                 # In order to recreate the Lei Luo paper results, new orders should start when the
@@ -476,19 +476,25 @@ def main():
     num_cols = 6
     episode_length = 72
     num_hist_rtms = 5
+    num_hist_occs = 0  # Currently not in use!
+    vt_speed = 1.0
+    sh_speed = 1.0
     wh_sim = wh(num_rows,
                 num_floors,
                 num_cols,
                 episode_length,
-                num_hist_rtms=num_hist_rtms)
+                num_hist_rtms,
+                num_hist_occs,
+                vt_speed,
+                sh_speed)
 
     train_episodes = 1  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
     # Train the network; regular operation.
     # train_plant_model.RunTraining(train_episodes)
 
-    # Benchmarks: run one at a time, still a work in progress. Note: be aware of the fact that plots
-    # are saved locally! See SaveExperimentResults()
+    # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
+    # locally! See SaveExperimentResults()
     train_plant_model.RunBenchmark(50, benchmark_policy='random')
     train_plant_model.RunBenchmark(1, benchmark_policy='greedy')
     train_plant_model.RunBenchmark(50, benchmark_policy='eps_greedy')
