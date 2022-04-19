@@ -1,6 +1,6 @@
 import socket
 from TrainingGame import TrainingGame
-from response_time import Warehouse
+from Warehouse import Warehouse
 from orders import OrderSystem
 import copy
 import numpy as np
@@ -19,6 +19,7 @@ import numpy as np
     comes a prediction of the time necessary, which is then checked against the
     time it actually took.
 """
+
 
 def index_str(str1, str2):
     """Finds the specified string str1 containing the full location of the specified substr2, Returns as a list"""
@@ -44,15 +45,13 @@ class PlantGame_AVSRS(TrainingGame):
         self.this_episodes_time = 0.0
         self.local_episode_counter = 0
 
-        print("start plant simulation") #create object here
-        
+        print("start plant simulation")  # create object here
+
         # self.server = socket.socket()
         # self.server.bind(('127.0.0.5', 8520))
         # self.server.listen(5)
         # self.socketObj, self.socketAddress = self.server.accept()
         self.init_para()
-        
-
 
     def init_para(self):
         self.AvailablePos = [1.] * self.X_dim * self.Y_dim
@@ -62,11 +61,12 @@ class PlantGame_AVSRS(TrainingGame):
         self.local_episode_counter = 0
         self.this_episodes_time = 0.0
 
-        self.last_response_time_matrix = [[0. for col in range(self.X_dim)] for row in range(self.Y_dim)]
+        self.last_response_time_matrix = [
+            [0. for col in range(self.X_dim)] for row in range(self.Y_dim)]
         # self.last_response_time_matrix_list.append(self.last_response_time_matrix)
         self.last_response_time_matrix_list = []
 
-    def get_state_from_socket(self): # TODO: replace with non-server thingemajig
+    def get_state_from_socket(self):  # TODO: replace with non-server thingemajig
         # original_date = self.socketObj.recv(1024)
         # original_date_str = format(original_date.decode())
         # return original_date_str
@@ -76,7 +76,8 @@ class PlantGame_AVSRS(TrainingGame):
         self.init_para()
 
         # original_date_str = self.get_state_from_socket()
-        original_date_str = '_' + '_'.join([str(x) for x in np.round(np.random.uniform(3.0, 32.0, 96), 1).tolist()]) + '_' + f'{self.local_episode_counter}+1.00'
+        original_date_str = '_' + '_'.join([str(x) for x in np.round(np.random.uniform(
+            3.0, 32.0, 96), 1).tolist()]) + '_' + f'{self.local_episode_counter}+1.00'
         state_time_matrix, is_end, episode_time = self.get_response_time(original_date_str)
 
         # self.last_episode_time = 0.0
@@ -89,16 +90,16 @@ class PlantGame_AVSRS(TrainingGame):
         # send action
         # self.socketObj.send(str(action).encode())
         self.AvailablePos[action] = 0
-        
+
         self.allAction.append(action)
         self.chooseTime += 1
-        
+
         # # Generate list of randoms
         # listOfRandoms = np.round(np.random.uniform(3.0, 32.0, 96), 1).tolist()
-        
+
         # # Add the time of the chosen action to this episode's time
         # self.this_episodes_time += listOfRandoms[action]
-        
+
         # # Element-wise multiplication of randoms and available locations.
         # # This gives 0 for every occupied location, just like the simulation.
         # listOfRandomsWithoutFilledSpaces = [
@@ -124,7 +125,6 @@ class PlantGame_AVSRS(TrainingGame):
         # # Rename
         # original_date_str = stringOfRandoms
 
-
         # recieve socket message
         # original_date_str = self.get_state_from_socket()
 
@@ -134,7 +134,7 @@ class PlantGame_AVSRS(TrainingGame):
         """The partial reward is equal to the action time. Continue in
         train_step in policy_net_AC_pytorch.py."""
         # calculate reward
-        reward = self.last_episode_time - episode_time # 望大
+        reward = self.last_episode_time - episode_time  # 望大
         # reward = episode_time - self.last_episode_time # 望小
         self.last_episode_time = episode_time
 
@@ -147,7 +147,7 @@ class PlantGame_AVSRS(TrainingGame):
     def get_response_time(self, response_time_matrix):
         """This replaces an earlier implementation by Lei Luo. It takes in an
         ndarray, maintained by the Warehouse instance."""
-        
+
         return state, is_end, episode_time
 
     def get_response_time(self, original_date_str):
@@ -264,5 +264,3 @@ class PlantGame_AVSRS(TrainingGame):
             is_end = False
 
         return state, is_end, episode_time
-
-
