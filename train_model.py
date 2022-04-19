@@ -112,6 +112,7 @@ class TrainGameModel():
 
                 # Get a random shelf ID (for testing).
                 # action = self.wh_sim.GetRandomShelfId(infeed=infeed)
+                prev_max_busy_till = max_busy_till
 
                 all_action.append(action)
                 # Have the selected action get executed by the warehouse sim.
@@ -130,6 +131,9 @@ class TrainGameModel():
                     # Process the action, returns the time at which the action is done.
                     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
 
+                max_busy_till = max(self.wh_sim.agent_busy_till.values())
+                candidate_reward = prev_max_busy_till - max_busy_till
+
                 # Finish and log the executed order.
                 finish_time = action_time  # + self.wh_sim.sim_time
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
@@ -138,7 +142,8 @@ class TrainGameModel():
                 # TODO: find a more logical reward mechanism.
                 # reward = self.wh_sim.prev_action_time - action_time
                 # Try this: reward is relative action time (i.e. response time)
-                reward = -action_time + self.wh_sim.sim_time
+                # reward = -action_time + self.wh_sim.sim_time
+                reward = candidate_reward
                 self.neural_network.add_reward(reward)
                 self.episode_reward += reward
                 all_reward.append(reward)
