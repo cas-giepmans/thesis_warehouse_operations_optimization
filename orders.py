@@ -25,6 +25,9 @@ class OrderSystem():
         self.order_register = {}
         self.order_count = 0
 
+        # RNG for generating orders.
+        self.rng = np.random.default_rng()
+
     def Reset(self):
         """Reset the order system for the next training episode."""
         self.infeed_queue.empty()
@@ -32,35 +35,33 @@ class OrderSystem():
         self.order_register.clear()
         self.order_count = 0
 
-    # def generate_new_order_schedule(self, episode_length, max_rt=15.0):
-
-    def GenerateNewOrder(self, **kwargs):
-        # Before generating a new order, update the warehouse's sim_time!
+    def GenerateNewOrder(self, current_time, order_type, free_and_occ, item_type=1):
 
         # Create preliminary order_id for potential troubleshooting.
         order_id = self.order_count + 1
 
         # Perform some checks.
-        if "order_type" not in kwargs:
-            raise Exception(f"No order_type specified for order {order_id}")
-        if kwargs["order_type"] not in ["infeed", "outfeed", "random"]:
-            raise Exception(f"""The specified order_type {kwargs["order_type"]}
+        if order_type not in ["infeed", "outfeed", "random"]:
+            raise Exception(f"""The specified order_type {order_type}
                             for order {order_id} is invalid""")
-        if "item_type" not in kwargs:
-            raise Exception(f"No item_type specified for order {order_id}")
+        # if order_type == "infeed" and free_and_occ[0] == 0:
+        #     raise Exception("Can't infeed to a full warehouse!")
+        # if order_type == "outfeed" and free_and_occ[1] == 0:
+        #     raise Exception("Can't outfeed from an empty warehouse!")
 
         # Green light: order will be created.
         self.order_count += 1
 
-        # Get keyword arguments.
-        if kwargs["order_type"] == "random":
-            order_type = "infeed" if bool(random.getrandbits(1)) else "outfeed"
-        else:
-            order_type = kwargs["order_type"]
-        item_type = kwargs["item_type"]
-        current_time = kwargs["current_time"]
+        # Check whether the current warehouse state requires a specific action
+        if order_type == "random":
+            if free_and_occ[0] == 0:
+                order_type = "outfeed"
+            elif free_and_occ[1] == 0:
+                order_type = "infeed"
+            else:
+                order_type = "infeed" if bool(random.getrandbits(1)) else "outfeed"
 
-        # Create the order
+        # Create the order.
         order = {"order_type": order_type,
                  "item_type": item_type,
                  "time_created": current_time,
@@ -88,79 +89,51 @@ class OrderSystem():
         elif order["order_type"] == "outfeed":
             self.outfeed_queue.put(order_id)
 
-        order["in_queue"] = True
-        order["time_in_queue"] = 0.0
+        self.order_register[order_id]["in_queue"] = True
+        self.order_register[order_id]["time_in_queue"] = 0.0
 
-    def GetNextOrder(self, current_time, free_and_occ, prioritize_outfeed=True):
-        """
-        Gets the next order from either the infeed or outfeed queue.
+    def GetNextOrder(self, current_time, free_and_occ, init_fill_perc=0.5):
+        """Rewrite of the original method of the same name. IMPORTANT: if init_fill_perc is 1.0 or
+           0.0, immediately get an outfeed or infeed order, respectively. This is the only legal
+           behavior, as you can't reliably simulate around a full or empty warehouse!"""
+        n_free = free_and_occ[0]  # Number of free shelves
+        n_occ = free_and_occ[1]  # Number of occupied shelves
+        curr_fill_perc = float(n_occ / (n_free + n_occ))  # How full the warehouse is at this time
+        in_Q_empty = False if self.infeed_queue.qsize() > 0 else True  # Check for infeed orders
+        out_Q_empty = False if self.outfeed_queue.qsize() > 0 else True  # Check for outfeed orders
 
-        Parameters
-        ----------
-        current_time : float
-            The time at which the next order is requested. Should be current simulation time.
-        free_and_occ : tuple.
-            Contains the count of free and occupied shelves in the current warehouse state.
-        prioritize_outfeed : bool, optional
-            Whether outfeed should be prioritized over infeed. The default is True.
-
-        Raises
-        ------
-        RuntimeError
-            When the queues are empty or the warehouse is empty or full.
-
-        Returns
-        -------
-        next_order_id : int
-            The ID of the next order to be executed.
-        order : dict
-            The entry in the order_register that contains all the values of the order.
-
-        """
-        # Check if queues are empty.
-        infeed_queue_empty = False if self.infeed_queue.qsize() > 0 else True
-        outfeed_queue_empty = False if self.outfeed_queue.qsize() > 0 else True
-
-        # Catch the case where both queues are empty.
-        if infeed_queue_empty and outfeed_queue_empty:
+        if in_Q_empty and out_Q_empty:
             raise RuntimeError("""Both queues are empty, can't get next order.""")
 
-        # Catch the cases where you want to infeed into a full warehouse or outfeed from an
-        # empty warehouse.
-        if infeed_queue_empty and free_and_occ[1] == 0:
-            raise RuntimeError(f"Trying to outfeed from an empty warehouse! Time: {current_time}")
-        elif outfeed_queue_empty and free_and_occ[0] == 0:
-            raise RuntimeError(f"Trying to infeed to a full warehouse! Time: {current_time}")
+        # Handle the case where we start from a full or empty warehouse.
+        if init_fill_perc in [0.0, 1.0]:
+            # Interpret the float value of init_fill_perc as a boolean.
+            next_order_id = self.outfeed_queue.get() if init_fill_perc else self.infeed_queue.get()
+            return next_order_id, self.order_register[next_order_id]
 
-        # If there's an outfeed prioritization (to prevent saturated warehouse)
-        if prioritize_outfeed:
-            if not outfeed_queue_empty:
-                next_order_id = self.outfeed_queue.get()
-            else:
-                # Don't need to check if infeed queue is empty, that's already done above.
-                next_order_id = self.infeed_queue.get()
-        # No prioritization is given, 50/50 chance for both (if both non-empty)
+        if (n_free == 0 and out_Q_empty) or (n_occ == 0 and in_Q_empty):
+            raise RuntimeError("Warehouse is full/empty but there is no outfeed/infeed order!")
+
+        # Here we know for sure that we can outfeed in case the warehouse is full, or infeed in case
+        # the warehouse is empty. So do that to prevent illegal situations.
+        if n_free == 0:
+            next_order_id = self.outfeed_queue.get()
+            return next_order_id, self.order_register[next_order_id]
+        elif n_occ == 0:
+            next_order_id = self.infeed_queue.get()
+            return next_order_id, self.order_register[next_order_id]
         else:
-            if not outfeed_queue_empty and not infeed_queue_empty:
-                # Get random boolean.
-                decider = bool(random.getrandbits(1))
-                if decider is True:
-                    next_order_id = self.outfeed_queue.get()
-                else:
-                    next_order_id = self.infeed_queue.get()
-            elif not outfeed_queue_empty:
+            # Green light to draw from a random variable, without risking illegal behavior.
+            decider = self.rng.uniform()
+            prob_outf = curr_fill_perc**(init_fill_perc / (1 - init_fill_perc))
+            if decider <= prob_outf:
+                # Get an outfeed order from the queue.
                 next_order_id = self.outfeed_queue.get()
-            elif not infeed_queue_empty:
+                return next_order_id, self.order_register[next_order_id]
+            else:
+                # Get an infeed order from the queue.
                 next_order_id = self.infeed_queue.get()
-
-        # Calculate in-queue time, set start time.
-        self.order_register[next_order_id]["time_in_queue"] = (
-            current_time - self.order_register[next_order_id]["time_created"])
-        self.order_register[next_order_id]["in_queue"] = False
-        self.order_register[next_order_id]["time_start"] = current_time
-
-        # Return order ID, order.
-        return next_order_id, self.order_register[next_order_id]
+                return next_order_id, self.order_register[next_order_id]
 
     def FinishOrder(self, order_id, shelf_id, finish_time):
         """Complete order, log time and set shelf_id (either where the item was stored or from where

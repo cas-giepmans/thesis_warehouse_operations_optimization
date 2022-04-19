@@ -30,7 +30,8 @@ class Warehouse():
             num_hist_rtms=2,
             num_hist_occs=2,
             vt_speed=None,
-            sh_speed=None):
+            sh_speed=None,
+            fill_perc=0.5):
         """
 
 
@@ -90,6 +91,9 @@ class Warehouse():
 
         # Count the number of storage/retrieval actions/orders.
         self.action_counter = 0
+
+        # Specify how full the warehouse should be at the start of an episode.
+        self.init_fill_perc = fill_perc
 
         # Initiate the order system.
         self.order_system = OrderSystem()
@@ -185,7 +189,10 @@ class Warehouse():
 
         # If requested, fill the shelves randomly up to a certain percentage.
         if random_fill_percentage is not None:
-            self.SetRandomOccupancy(fill_percentage=random_fill_percentage)
+            self.SetRandomOccupancy(random_fill_percentage)
+        else:
+            self.SetRandomOccupancy(self.init_fill_perc)
+
         self.sim_time = 0.0
         self.prev_action_time = 0.0
         self.action_counter = 0
