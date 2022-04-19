@@ -3,7 +3,7 @@ import random
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
-from torchsummary import summary
+# from torchsummary import summary
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
 from datetime import date, datetime
@@ -19,23 +19,40 @@ class TrainGameModel():
             wh.num_locs,  # Number of storage locations.
             wh.num_locs)
 
-        summary(self.neural_network.policy_value_net, input_size=(6, 12, 6))
+        # summary(self.neural_network.policy_value_net, input_size=(6, 12, 6))
         self.endTime = 0
         self.lr = 1.e-3
         self.lr_decay = 0.9
         self.discount_factor = 1.0
         self.episode_reward = 0.0
         self.epsiode_count = 0
-        self.change_count = 400
+        self.change_count = 200
 
-    def RunTraining(self, train_episodes):
+        self.scenarios = ["infeed", "outfeed", "both"]
+        self.benchmark_policies = ["random",
+                                   "greedy",
+                                   "eps_greedy",
+                                   "col_by_col",
+                                   "col_by_col_alt",
+                                   "floor_by_floor",
+                                   "floor_by_floor_alt",
+                                   "rfc_policy",
+                                   "crf_policy"]
+
+    def RunTraining(self, train_episodes, scenario="infeed"):
+
+        # First perform a check.
+        if scenario not in self.scenarios:
+            raise ValueError(
+                f"There is no scenario called '{scenario}'! Specify 'infeed', 'outfeed' or 'both'.")
+
         self.startTime = datetime.now()
         all_episode_times = []
         all_episode_rewards = []
         dims = self.wh_sim.dims
         for i_episode in range(train_episodes):
             # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
-            wh_state = self.wh_sim.ResetState(random_fill_percentage=0.0)
+            wh_state = self.wh_sim.ResetState(random_fill_percentage=self.wh_sim.init_fill_perc)
 
             # Reset local variables.
             self.episode_reward = 0.0
@@ -45,6 +62,8 @@ class TrainGameModel():
             outfeed_count = 0
             occupied_locs = None
             free_locs = None
+            prev_max_busy_till = 0.0
+            max_busy_till = 0.0
 
             while True:
                 # Increase the sim_time by some amount here.
@@ -69,33 +88,29 @@ class TrainGameModel():
                 free_and_occ = (len(free_locs), len(occupied_locs))
 
                 # Generate a new order.
-                # self.wh_sim.order_system.GenerateNewOrder(
-                #     order_type="random", item_type=1, current_time=self.wh_sim.sim_time)
-                self.wh_sim.order_system.GenerateNewOrder(
-                    order_type="infeed", item_type=1, current_time=self.wh_sim.sim_time)
+                if scenario == "both":  # If we're doing both infeed and outfeed.
+                    self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
+                                                              order_type="random",
+                                                              free_and_occ=free_and_occ,
+                                                              item_type=1)
+                else:  # If we're doing only infeed or only outfeed.
+                    self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
+                                                              order_type=scenario,
+                                                              free_and_occ=free_and_occ,
+                                                              item_type=1)
 
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
-                try:
-                    next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
-                        self.wh_sim.sim_time, free_and_occ, False)
-                    if next_order["order_type"] == "infeed":
-                        infeed = True
-                    elif next_order["order_type"] == "outfeed":
-                        infeed = False
-                except RuntimeError:
-                    # Training should continue, but this is unwanted behavior.
-                    # FIXME: this never occurs, see if you can disconnect it.
-                    print(f"The episode terminated prematurely because of order {next_order_id}.")
-                    self.episode_reward = -1000
-                    self.neural_network.add_reward(-1000)
-                    break
+                next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
+                    self.wh_sim.sim_time, free_and_occ, init_fill_perc=self.wh_sim.init_fill_perc)
+
+                infeed = True if next_order["order_type"] == "infeed" else False
 
                 # Calculate a new RTM.
                 self.wh_sim.CalcRTM()
 
                 # Prepare the state.
-                wh_state = self.wh_sim.GetState(infeed)
+                wh_state = self.wh_sim.BuildState(infeed)
 
                 # Select an action with the NN based on the state, order type and occupancy.
                 # TODO: Make sure the selected action is a usable shelf_id!
@@ -188,18 +203,32 @@ class TrainGameModel():
         t_seconds = (self.endTime - self.startTime).total_seconds()
         print(f"Time taken: {t_seconds}s. Episodes/second: {round(train_episodes / t_seconds, 2)}")
 
-        # TODO: Write a function for exporting the order_register to a csv file. Would be good to see shelf access density.
+        # TODO: Write a function for exporting the order_register to a csv file.
 
         # Save all the generated plots. Based on infeed/outfeed order generation, check before run!
-        self.SaveExperimentResults(train_episodes, all_episode_rewards)
+        self.SaveExperimentResults(train_episodes, all_episode_rewards,
+                                   access_densities=access_densities)
 
-    def RunBenchmark(self, n_iterations, benchmark_policy="random", save_results=False):
+    def RunBenchmark(self,
+                     n_iterations,
+                     scenario="infeed",
+                     benchmark_policy="random",
+                     save_results=True):
+
+        # Perform some checks.
+        if scenario not in self.scenarios:
+            raise ValueError(
+                f"There is no scenario called '{scenario}'! Please specify 'infeed', 'outfeed' or 'both'.")
+        if benchmark_policy not in self.benchmark_policies:
+            raise ValueError(
+                f"There is no benchmark called '{benchmark_policy}'! Check the arguments of your function call.")
+
         self.startTime = datetime.now()
         all_episode_times = []
         all_episode_rewards = []
         for iter_i in range(n_iterations):
             # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
-            self.wh_sim.ResetState(random_fill_percentage=0.0)
+            self.wh_sim.ResetState(random_fill_percentage=self.wh_sim.init_fill_perc)
 
             # Reset local variables.
             self.episode_reward = 0.0
@@ -207,8 +236,11 @@ class TrainGameModel():
             all_reward = []
             infeed_count = 0
             outfeed_count = 0
+            prev_max_busy_till = 0.0
+            max_busy_till = 0.0
 
             while True:
+                # print(f"Taking a step in iteration {iter_i}.")
                 # Increase the sim_time by some amount here.
                 # In order to recreate the Lei Luo paper results, new orders should start when the
                 # vertical transporter becomes available.
@@ -219,40 +251,55 @@ class TrainGameModel():
                                 np.count_nonzero(self.wh_sim.shelf_occupied))
 
                 # Generate a new order.
-                self.wh_sim.order_system.GenerateNewOrder(
-                    order_type="infeed", item_type=1, current_time=self.wh_sim.sim_time)
+                if scenario == "both":  # If we're doing both infeed and outfeed.
+                    self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
+                                                              order_type="random",
+                                                              free_and_occ=free_and_occ,
+                                                              item_type=1)
+                else:  # If we're doing only infeed or only outfeed.
+                    self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
+                                                              order_type=scenario,
+                                                              free_and_occ=free_and_occ,
+                                                              item_type=1)
 
+                # print(f"Order generated, now picking next order.")
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
                 next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
-                    self.wh_sim.sim_time, free_and_occ, False)
-                # Assume we're benchmarking the infeed-only scenario.
-                infeed = True
+                    self.wh_sim.sim_time, free_and_occ, self.wh_sim.init_fill_perc)
 
+                # See if we're executing an infeed or outfeed order.
+                infeed = True if next_order['order_type'] == "infeed" else False
+
+                # print(f"Order picked, type is infeed: {infeed}.")
                 # Calculate a new RTM.
                 self.wh_sim.CalcRTM()
 
                 # Get an action given the defined benchmark policy.
-                action = self.wh_sim.GetNextBenchmarkPolicyShelfId(bench_pol=benchmark_policy)
-                infeed_count += 1
+                action = self.wh_sim.GetNextBenchmarkPolicyShelfId(
+                    bench_pol=benchmark_policy, infeed=infeed)
+                # infeed_count += 1
+                # print(f"picked an action: {action}.")
+                prev_max_busy_till = max_busy_till
 
                 all_action.append(action)
                 # Have the selected action get executed by the warehouse sim.
-                try:
-                    # Process the action, returns the time at which the action is done.
-                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
-                except Exception:
-                    # TODO: Make sure the system doesn't generate illegal orders.
-                    print("Picking random action from available shelves.")
-                    print(f"free IDs: {self.wh_sim.GetIds(True)}")
-                    # print(f"Free locs: {free_locs}")
-                    print(next_order)
-                    self.wh_sim.PrintOccupancy()
-                    av_ids = self.wh_sim.GetIds(infeed)
-                    action = random.choice(av_ids)
-                    # Process the action, returns the time at which the action is done.
-                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+                # try:
+                # Process the action, returns the time at which the action is done.
+                action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+                # except Exception:
+                #     print("Picking random action from available shelves.")
+                #     print(f"free IDs: {self.wh_sim.GetIds(True)}")
+                #     # print(f"Free locs: {free_locs}")
+                #     print(next_order)
+                #     self.wh_sim.PrintOccupancy()
+                #     av_ids = self.wh_sim.GetIds(infeed)
+                #     action = random.choice(av_ids)
+                #     # Process the action, returns the time at which the action is done.
+                #     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
 
+                max_busy_till = max(self.wh_sim.agent_busy_till.values())
+                candidate_reward = prev_max_busy_till - max_busy_till
                 # Finish and log the executed order.
                 finish_time = action_time
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
@@ -261,6 +308,9 @@ class TrainGameModel():
                 reward = -action_time + self.wh_sim.sim_time
                 self.episode_reward += reward
                 all_reward.append(reward)
+                # print(f"For order: {self.wh_sim.action_counter}")
+                # print(f"Current reward: {reward}")
+                # print(f"Cand. reward:   {candidate_reward}\n")
 
                 # Log the action time.
                 self.wh_sim.prev_action_time = action_time
@@ -271,6 +321,10 @@ class TrainGameModel():
             # Append the iteration's time to the list of all times.
             all_episode_times.append(self.wh_sim.sim_time)
             all_episode_rewards.append(self.episode_reward)
+
+            # Print the order register for inspection.
+            # To use: slice access_densities with indices [0] and [1].
+            access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
 
             # Print iteration meta info.
             print(f"Finished it. {iter_i + 1}/{n_iterations}.")
@@ -294,7 +348,7 @@ class TrainGameModel():
         print(
             f"Time taken: {t_seconds}s. Episodes/second: {round(n_iterations / t_seconds, 2)}\n\n")
 
-        self.SaveExperimentResults(n_iterations, all_episode_rewards,
+        self.SaveExperimentResults(n_iterations, all_episode_rewards, access_densities,
                                    exp_name=benchmark_policy)
 
     def SaveBestModel(self):
@@ -355,10 +409,15 @@ class TrainGameModel():
         plt.show()
 
     def DrawAccessOrder(self, all_episode_rewards, exp_name=None):
-        """Draw a warehouse-like matrix where each entry denotes when that shelf was filled."""
+        """Draw a warehouse-like matrix where each entry denotes when that shelf was filled. This
+           plot is only informative when either completely filling an empty warehouse, or emptying a
+           full warehouse."""
         dims = self.wh_sim.dims
         orders = self.wh_sim.order_system.order_register
         order_matrix = np.zeros((dims[0], dims[1], dims[2]), dtype=int)
+
+        if len(orders.keys()) > dims[0] * dims[1] * dims[2]:
+            raise Exception("Too many processed orders to draw the shelf access order!")
 
         for (order_id, order_data) in orders.items():
             (r, f, c) = self.wh_sim.shelf_rfc[order_data['shelf_id']]
@@ -443,7 +502,7 @@ class TrainGameModel():
         plt.show()
 
     # TODO: Finish method for saving experiment results and metadata.
-    def SaveExperimentResults(self, nr_of_episodes, all_episode_rewards, exp_name=None):
+    def SaveExperimentResults(self, nr_of_episodes, all_episode_rewards, access_densities=None, exp_name=None):
         """Method for saving the parameters and results of an experiment to a folder."""
         # Navigate to the experiment folder, create the folder for this run.
         # Go up two levels to the 'Thesis' folder.
@@ -503,7 +562,10 @@ class TrainGameModel():
             self.DrawResults(all_episode_rewards)
         else:
             pass
-        self.DrawAccessOrder(all_episode_rewards, exp_name=exp_name)
+
+        if self.wh_sim.episode_length <= self.wh_sim.num_locs:
+            self.DrawAccessOrder(all_episode_rewards, exp_name=exp_name)
+        self.DrawAccessDensity(access_densities, exp_name=exp_name)
         # TODO: make it so you can choose to save the figures or not (less clutter in storage).
 
         # Return to the original directory in case we're executing multiple benchmarks in sequence.
@@ -516,11 +578,12 @@ def main():
     num_rows = 2
     num_floors = 6
     num_cols = 6
-    episode_length = 72
+    episode_length = 1000
     num_hist_rtms = 5
     num_hist_occs = 0  # Currently not in use!
-    vt_speed = 1.0
+    vt_speed = 5.0
     sh_speed = 1.0
+    percentage_filled = 0.5
     wh_sim = wh(num_rows,
                 num_floors,
                 num_cols,
@@ -528,24 +591,26 @@ def main():
                 num_hist_rtms,
                 num_hist_occs,
                 vt_speed,
-                sh_speed)
+                sh_speed,
+                percentage_filled)
+    scenario = "both"
 
-    train_episodes = 1  # This value exceeding 5000 is not recommended
+    train_episodes = 1000  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
     # Train the network; regular operation.
-    # train_plant_model.RunTraining(train_episodes)
+    # train_plant_model.RunTraining(train_episodes, scenario)
 
     # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
     # locally! See SaveExperimentResults()
-    train_plant_model.RunBenchmark(50, benchmark_policy='random')
-    train_plant_model.RunBenchmark(1, benchmark_policy='greedy')
-    train_plant_model.RunBenchmark(50, benchmark_policy='eps_greedy')
-    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col')
-    train_plant_model.RunBenchmark(1, benchmark_policy='col_by_col_alt')
-    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor')
-    train_plant_model.RunBenchmark(1, benchmark_policy='floor_by_floor_alt')
-    train_plant_model.RunBenchmark(1, benchmark_policy='rfc_policy')
-    train_plant_model.RunBenchmark(1, benchmark_policy='crf_policy')
+    # train_plant_model.RunBenchmark(50, scenario=scenario, benchmark_policy='random')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(50, scenario=scenario, benchmark_policy='eps_greedy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col_alt')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor_alt')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
     # sys.exit("training end")
 
 

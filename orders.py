@@ -101,19 +101,26 @@ class OrderSystem():
         curr_fill_perc = float(n_occ / (n_free + n_occ))  # How full the warehouse is at this time
         in_Q_empty = False if self.infeed_queue.qsize() > 0 else True  # Check for infeed orders
         out_Q_empty = False if self.outfeed_queue.qsize() > 0 else True  # Check for outfeed orders
-
+        # print(f"We stop at 1")
         if in_Q_empty and out_Q_empty:
             raise RuntimeError("""Both queues are empty, can't get next order.""")
+        elif in_Q_empty and not out_Q_empty:
+            next_order_id = self.outfeed_queue.get()
+            return next_order_id, self.order_register[next_order_id]
+        elif out_Q_empty and not in_Q_empty:
+            next_order_id = self.infeed_queue.get()
+            return next_order_id, self.order_register[next_order_id]
 
         # Handle the case where we start from a full or empty warehouse.
         if init_fill_perc in [0.0, 1.0]:
             # Interpret the float value of init_fill_perc as a boolean.
             next_order_id = self.outfeed_queue.get() if init_fill_perc else self.infeed_queue.get()
             return next_order_id, self.order_register[next_order_id]
-
+        # print(f"We stop at 2")
         if (n_free == 0 and out_Q_empty) or (n_occ == 0 and in_Q_empty):
             raise RuntimeError("Warehouse is full/empty but there is no outfeed/infeed order!")
 
+        # print(f"We stop at 3")
         # Here we know for sure that we can outfeed in case the warehouse is full, or infeed in case
         # the warehouse is empty. So do that to prevent illegal situations.
         if n_free == 0:
@@ -124,9 +131,15 @@ class OrderSystem():
             return next_order_id, self.order_register[next_order_id]
         else:
             # Green light to draw from a random variable, without risking illegal behavior.
-            decider = self.rng.uniform()
-            prob_outf = curr_fill_perc**(init_fill_perc / (1 - init_fill_perc))
-            if decider <= prob_outf:
+            # FIXME: I think something is going wrong here, RunBenchmark gets stuck somewhere.
+            # decider = self.rng.uniform()
+            # print(f"Get random order from queues.")
+            # print(
+            #     f"Queue sizes (in and out): {self.infeed_queue.qsize()}, {self.outfeed_queue.qsize()}")
+            decider = bool(random.getrandbits(1))
+            # prob_outf = curr_fill_perc**(init_fill_perc / (1 - init_fill_perc))
+            # if decider <= prob_outf:
+            if decider:
                 # Get an outfeed order from the queue.
                 next_order_id = self.outfeed_queue.get()
                 return next_order_id, self.order_register[next_order_id]

@@ -436,7 +436,9 @@ class Warehouse():
         sequence = self.shelf_access_sequence[selected_shelf_id]
 
         # The sequence must be reversed for outfeed response time calculation.
-        agents = list(sequence.keys()) if infeed else reversed(list(sequence.keys()))
+        agents = list(sequence.keys())
+        if not infeed:
+            agents.reverse()
         pth = (0, selected_shelf_id) if infeed else (selected_shelf_id, 0)
 
         # Initially set the action time (when it finishes) to be the same as the simulation time.
@@ -532,17 +534,17 @@ class Warehouse():
         """Print the correctly oriented occupancy matrix."""
         print(np.flip(self.shelf_occupied, axis=1))
 
-    def GetNextBenchmarkPolicyShelfId(self, bench_pol="random", eps=0.1) -> np.int16:
+    def GetNextBenchmarkPolicyShelfId(self, bench_pol="random", infeed=True, eps=0.1) -> np.int16:
         """Get the next shelf ID according to a benchmark policy. Possible benchmark policies are
         'random', 'greedy', 'eps_greedy', 'col_by_col', 'col_by_col_alt', 'floor_by_floor' and
         'floor_by_floor_alt'. Only meant for benchmarking infeed-only scenarios."""
 
         if bench_pol == 'random':
-            return self.GetRandomShelfId(infeed=True)
+            return self.GetRandomShelfId(infeed=infeed)
         elif bench_pol == 'greedy':
-            return self.GetGreedyShelfId(infeed=True)
+            return self.GetGreedyShelfId(infeed=infeed)
         elif bench_pol == 'eps_greedy':
-            return self.GetEpsGreedyShelfId(infeed=True, eps=eps)
+            return self.GetEpsGreedyShelfId(infeed=infeed, eps=eps)
 
         elif bench_pol == 'col_by_col':
             return self.cbc_normal_shelf_sequence[self.action_counter]
@@ -577,16 +579,20 @@ class Warehouse():
 
         # print(candidate_ids)
         min_rt = float('inf')
-        shelf_id = None
+        min_rt_shelf_ids = []
+        # shelf_id = None
 
         for c_id in candidate_ids:
             (r, f, c) = self.shelf_rfc[c_id]
-            if self.rtm[r, f, c] >= min_rt:
+            if self.rtm[r, f, c] > min_rt:  # If response time is greater
                 continue
-            else:
+            elif self.rtm[r, f, c] == min_rt:  # If response time is equal to smallest-encountered
+                min_rt_shelf_ids.append(c_id)
+            else:  # If response time is better than previously encountered
                 min_rt = self.rtm[r, f, c]
-                shelf_id = c_id
-        return shelf_id
+                min_rt_shelf_ids.clear()
+                min_rt_shelf_ids.append(c_id)
+        return self.rng.choice(min_rt_shelf_ids)
 
     def GetEpsGreedyShelfId(self, infeed=True, eps=0.1) -> np.int16:
         """Return a shelf ID that has the lowest response time with prob. (1-eps), else return a
