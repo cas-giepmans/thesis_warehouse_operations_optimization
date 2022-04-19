@@ -304,17 +304,54 @@ class TrainGameModel():
                 self.train_episodes) + ".model"
             self.neural_network.save_model(savePath)  # 保存模型
 
-    # TODO: Improve this function: subplots, titles, correctly oriented.
-    # FIXME: Work in progress! Don't use!!
-    def DrawAccessDensity(self, access_densities):
+    def DrawAccessDensity(self, access_densities, exp_name=None):
         """Draw the access densities for shelves given infeed and outfeed order counts."""
         dims = self.wh_sim.dims
         in_dens = np.reshape(access_densities[0], (dims[0] * dims[1], dims[2]))
         out_dens = np.reshape(access_densities[1], (dims[0] * dims[1], dims[2]))
 
-        plt.figure()
-        # plt.imshow(density_matrix, cmap="CMRmap")
-        plt.colorbar()
+        halfway_point = int(dims[0] * dims[1] / 2)
+        left_in_dens_matrix = in_dens[0:halfway_point, :]
+        right_in_dens_matrix = in_dens[halfway_point:, :]
+        left_out_dens_matrix = out_dens[0:halfway_point, :]
+        right_out_dens_matrix = out_dens[halfway_point:, :]
+
+        fig = plt.figure(figsize=(7, 6))
+        grid = ImageGrid(fig, 111,
+                         nrows_ncols=(2, 2),
+                         axes_pad=0.30,
+                         share_all=True,
+                         cbar_location='right',
+                         cbar_mode='single',
+                         cbar_size='7%',
+                         cbar_pad=0.15)
+
+        # Fill the subplots.
+        matrices = [left_in_dens_matrix, right_in_dens_matrix,
+                    left_out_dens_matrix, right_out_dens_matrix]
+        for idx, ax in enumerate(grid):
+            im = ax.matshow(matrices[idx], vmin=0, vmax=np.max(access_densities))
+            if idx in [0, 1]:
+                ax.set_title('Left side' if idx in [0, 2] else 'Right side')
+            if idx in [0, 2]:
+                ax.set_ylabel('Infeed' if idx == 0 else 'Outfeed')
+            ax.invert_yaxis()  # TODO: Check if this is necessary!
+            # Set the access count for its respective shelf.
+            for j in range(halfway_point):
+                for i in range(dims[2]):
+                    val = matrices[idx][j, i]
+                    ax.text(i, j, str(val), va='center', ha='center', fontsize='small')
+
+        ax.cax.colorbar(im)
+        ax.cax.toggle_label(True)
+
+        # Save before show. When show is called, the fig is removed from memory.
+        n_ord = np.sum(access_densities)
+        if exp_name is not None:
+            plt.suptitle(f"Shelf access densities for {exp_name}. n_orders = {n_ord}")
+        else:
+            plt.suptitle(f"Shelf access densities for AC network. n_orders = {n_ord}")
+        plt.savefig("Access densities.jpg")
         plt.show()
 
     def DrawAccessOrder(self, all_episode_rewards, exp_name=None):
