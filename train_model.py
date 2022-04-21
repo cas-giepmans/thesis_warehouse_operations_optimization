@@ -10,7 +10,7 @@ from datetime import date, datetime
 
 
 class TrainGameModel():
-    def __init__(self, wh):
+    def __init__(self, wh, lr=1.e-4, lr_decay=0.9, lr_decay_interval=200, discount_factor=1.0):
         self.wh_sim = wh
         self.neural_network = trainNet(
             wh.num_cols,
@@ -21,12 +21,12 @@ class TrainGameModel():
 
         # summary(self.neural_network.policy_value_net, input_size=(6, 12, 6))
         self.endTime = 0
-        self.lr = 1.e-3
-        self.lr_decay = 0.9
-        self.discount_factor = 1.0
+        self.lr = lr
+        self.lr_decay = lr_decay
+        self.discount_factor = discount_factor
         self.episode_reward = 0.0
         self.epsiode_count = 0
-        self.change_count = 200
+        self.change_count = lr_decay_interval
 
         self.scenarios = ["infeed", "outfeed", "both"]
         self.benchmark_policies = ["random",
@@ -318,6 +318,10 @@ class TrainGameModel():
                 if is_end:
                     break
 
+            # Set the sim time to when the last agent finishes its scheduled task.
+            if self.wh_sim.sim_time < max_busy_till:
+                self.wh_sim.sim_time = max_busy_till
+
             # Append the iteration's time to the list of all times.
             all_episode_times.append(self.wh_sim.sim_time)
             all_episode_rewards.append(self.episode_reward)
@@ -329,6 +333,8 @@ class TrainGameModel():
             # Print iteration meta info.
             print(f"Finished it. {iter_i + 1}/{n_iterations}.")
             print(f"Cumulative order fulfillment time: {-round(self.episode_reward, 2)}\n")
+            print(f"Simulation time: {self.wh_sim.sim_time}")
+            print(f"Max busy time: {max_busy_till}")
             # print(f"""Episode time: {self.wh_sim.sim_time}
             #           \rMin. episode time so far: {min(all_episode_times)}
             #           \rEpisode reward sum: {self.episode_reward}
@@ -565,7 +571,7 @@ class TrainGameModel():
 
         if self.wh_sim.episode_length <= self.wh_sim.num_locs:
             self.DrawAccessOrder(all_episode_rewards, exp_name=exp_name)
-        self.DrawAccessDensity(access_densities, exp_name=exp_name)
+        # self.DrawAccessDensity(access_densities, exp_name=exp_name)
         # TODO: make it so you can choose to save the figures or not (less clutter in storage).
 
         # Return to the original directory in case we're executing multiple benchmarks in sequence.
@@ -578,12 +584,12 @@ def main():
     num_rows = 2
     num_floors = 6
     num_cols = 6
-    episode_length = 1000
+    episode_length = 12
     num_hist_rtms = 5
     num_hist_occs = 0  # Currently not in use!
-    vt_speed = 5.0
+    vt_speed = 6.0
     sh_speed = 1.0
-    percentage_filled = 0.5
+    percentage_filled = 0.0
     wh_sim = wh(num_rows,
                 num_floors,
                 num_cols,
@@ -593,7 +599,7 @@ def main():
                 vt_speed,
                 sh_speed,
                 percentage_filled)
-    scenario = "both"
+    scenario = "infeed"
 
     train_episodes = 1000  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
