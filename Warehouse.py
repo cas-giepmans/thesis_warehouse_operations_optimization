@@ -235,10 +235,10 @@ class Warehouse():
         wh_state.append(np.reshape(self.rtm, (self.dims[0] * self.dims[1], self.dims[2])).tolist())
         # Add the occupancy matrix.
         if infeed is True:
-            wh_state.append(np.reshape(self.shelf_occupied,
+            wh_state.append(np.reshape(~self.shelf_occupied,
                             (self.dims[0] * self.dims[1], self.dims[2])).tolist())
         else:
-            wh_state.append(np.reshape(~self.shelf_occupied,
+            wh_state.append(np.reshape(self.shelf_occupied,
                             (self.dims[0] * self.dims[1], self.dims[2])).tolist())
         return wh_state
 
