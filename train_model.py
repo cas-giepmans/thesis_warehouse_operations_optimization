@@ -103,6 +103,8 @@ class TrainGameModel():
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
                 next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
                     self.wh_sim.sim_time, free_and_occ, init_fill_perc=self.wh_sim.init_fill_perc)
+                self.wh_sim.order_system.order_register[next_order_id]['time_start'] = float(
+                    self.wh_sim.sim_time)
 
                 infeed = True if next_order["order_type"] == "infeed" else False
 
@@ -267,6 +269,8 @@ class TrainGameModel():
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
                 next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
                     self.wh_sim.sim_time, free_and_occ, self.wh_sim.init_fill_perc)
+                self.wh_sim.order_system.order_register[next_order_id]['time_start'] = float(
+                    self.wh_sim.sim_time)
 
                 # See if we're executing an infeed or outfeed order.
                 infeed = True if next_order['order_type'] == "infeed" else False
@@ -329,6 +333,11 @@ class TrainGameModel():
             # Print the order register for inspection.
             # To use: slice access_densities with indices [0] and [1].
             access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
+
+            # print("Start time matrix:")
+            # self.wh_sim.PrintStartTimeMatrix()
+            # print("Finish time matrix:")
+            # self.wh_sim.PrintFinishTimeMatrix()
 
             # Print iteration meta info.
             print(f"Finished it. {iter_i + 1}/{n_iterations}.")
@@ -584,10 +593,10 @@ def main():
     num_rows = 2
     num_floors = 6
     num_cols = 6
-    episode_length = 12
-    num_hist_rtms = 5
+    episode_length = 72
+    num_hist_rtms = 1
     num_hist_occs = 0  # Currently not in use!
-    vt_speed = 6.0
+    vt_speed = 30.0
     sh_speed = 1.0
     percentage_filled = 0.0
     wh_sim = wh(num_rows,
@@ -601,7 +610,7 @@ def main():
                 percentage_filled)
     scenario = "infeed"
 
-    train_episodes = 1000  # This value exceeding 5000 is not recommended
+    train_episodes = 10  # This value exceeding 5000 is not recommended
     train_plant_model = TrainGameModel(wh_sim)
     # Train the network; regular operation.
     # train_plant_model.RunTraining(train_episodes, scenario)
@@ -609,14 +618,14 @@ def main():
     # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
     # locally! See SaveExperimentResults()
     # train_plant_model.RunBenchmark(50, scenario=scenario, benchmark_policy='random')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
     # train_plant_model.RunBenchmark(50, scenario=scenario, benchmark_policy='eps_greedy')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col_alt')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor_alt')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
     # sys.exit("training end")
 
 
