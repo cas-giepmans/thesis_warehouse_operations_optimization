@@ -270,9 +270,11 @@ class Warehouse():
             # Perform prepositioning, no need to wait for other agents
             # print(f"agent location: {agent_loc}, agent: {agent}")
             if agent == 'vt':
-                busy_till += self.CalcAgentTravelTime(agent, self.shelf_id[0, agent_loc, 0], pth[0])
+                busy_till += self.CalcAgentTravelTime(agent,
+                                                      self.shelf_id[0, agent_loc, 0], pth[0], False)
             else:
-                busy_till += self.CalcAgentTravelTime(agent, self.shelf_id[0, 0, agent_loc], pth[0])
+                busy_till += self.CalcAgentTravelTime(agent,
+                                                      self.shelf_id[0, 0, agent_loc], pth[0], False)
             # try:
             #     busy_till += self.CalcAgentTravelTime(agent, self.shelf_id[0, agent_loc, 0], pth[0])
             # except IndexError:
@@ -329,9 +331,9 @@ class Warehouse():
                 self.rtm[r, f, c] = self.CalcShelfAccessTime(shelf_id, infeed=False)
 
         # Normalize the RTM to a value between 0 and 1.
-        _max = self.rtm.max()
-        _min = self.rtm.min()
-        self.rtm = (self.rtm - _min) / (_max - _min)
+        # _max = self.rtm.max()
+        # _min = self.rtm.min()
+        # self.rtm = (self.rtm - _min) / (_max - _min)
 
     def ReadyTransporters(self, target_shelf_id, infeed=True):
         """
@@ -362,7 +364,7 @@ class Warehouse():
                     from_id = self.shelf_id[r, agent_loc, c]
                 else:
                     from_id = self.shelf_id[r, f, agent_loc]
-                agent_preposit_time = self.CalcAgentTravelTime(agent, from_id, 0)
+                agent_preposit_time = self.CalcAgentTravelTime(agent, from_id, 0, False)
 
                 # Calculate when agent is done with prepositioning
                 new_busy_time = np.maximum(
@@ -380,7 +382,8 @@ class Warehouse():
                     from_id = self.shelf_id[r, agent_loc, c]
                 else:
                     from_id = self.shelf_id[r, f, agent_loc]
-                agent_preposit_time = self.CalcAgentTravelTime(agent, from_id, target_shelf_id)
+                agent_preposit_time = self.CalcAgentTravelTime(
+                    agent, from_id, target_shelf_id, False)
 
                 new_busy_time = np.maximum(
                     self.sim_time, self.agent_busy_till[agent]) + agent_preposit_time
@@ -392,7 +395,7 @@ class Warehouse():
                 else:
                     self.agent_location[agent][new_busy_time] = c
 
-    def CalcAgentTravelTime(self, agent, from_id, to_id) -> float:
+    def CalcAgentTravelTime(self, agent, from_id, to_id, for_access=True) -> float:
         """
         Calculate the time required by an agent from traveling from point A to point B. Shuttles
         always take at least 1 * V_sh extra, otherwise some storage actions would take 0 seconds.
@@ -407,6 +410,8 @@ class Warehouse():
             The ID of the origin
         to_id : int
             The ID of the target location
+        for_access : bool
+            Whether to add + 1 for shuttle shelf access operation
 
         ----------
         Returns travel time.
@@ -415,7 +420,10 @@ class Warehouse():
         if agent != 'vt':
             _, _, c_origin = self.shelf_rfc[from_id]
             _, _, c_target = self.shelf_rfc[to_id]
-            return abs(c_origin - c_target) * self.column_travel_time
+            if for_access is True:
+                return (abs(c_origin - c_target) + 1) * self.column_travel_time
+            else:
+                return abs(c_origin - c_target) * self.column_travel_time
         else:
             _, f_origin, _ = self.shelf_rfc[from_id]
             _, f_target, _ = self.shelf_rfc[to_id]
@@ -543,15 +551,39 @@ class Warehouse():
         print(np.flip(self.rtm.round(2), axis=1))
 
     def PrintIdMatrix(self, print_it=True):
-        """Prints the warehouse with each shelf containing its shelf_id."""
+        """Prints the warehouse with each shelf containing its shelf_id, correctly oriented."""
         id_matrix = np.zeros(self.dims, dtype=int)
         for shelf_id in range(self.num_locs):
             (r, f, c) = self.shelf_rfc[shelf_id]
             id_matrix[r, f, c] = shelf_id
         if print_it is True:
-            print(id_matrix)
+            print(np.flip(id_matrix, axis=1))
         else:
             return id_matrix
+
+    def PrintFinishTimeMatrix(self, print_it=True):
+        """Prints the warehouse with each shelf containing its finish_time, correctly oriented."""
+        fin_matrix = np.zeros(self.dims, dtype=float)
+        for order_id in self.order_system.order_register.keys():
+            (r, f, c) = self.shelf_rfc[self.order_system.order_register[order_id]['shelf_id']]
+            fin_matrix[r, f, c] = round(
+                self.order_system.order_register[order_id]['time_finish'], 2)
+        if print_it is True:
+            print(np.flip(fin_matrix, axis=1))
+        else:
+            return fin_matrix
+
+    def PrintStartTimeMatrix(self, print_it=True):
+        """Prints the warehouse with each shelf containing its start time, correctly oriented."""
+        start_matrix = np.zeros(self.dims, dtype=float)
+        for order_id in self.order_system.order_register.keys():
+            (r, f, c) = self.shelf_rfc[self.order_system.order_register[order_id]['shelf_id']]
+            start_matrix[r, f, c] = round(
+                self.order_system.order_register[order_id]['time_start'], 2)
+        if print_it is True:
+            print(np.flip(start_matrix, axis=1))
+        else:
+            return start_matrix
 
     def PrintOccupancy(self):
         """Print the correctly oriented occupancy matrix."""
