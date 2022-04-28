@@ -50,6 +50,8 @@ class TrainGameModel():
         self.startTime = datetime.now()
         all_episode_times = []
         all_episode_rewards = []
+        last_order_registers = []
+        last_access_densities = []
         dims = self.wh_sim.dims
 
         # Specify the exploration strategy here.
@@ -206,9 +208,13 @@ class TrainGameModel():
             all_episode_times.append(self.wh_sim.sim_time)
             all_episode_rewards.append(self.episode_reward)
 
-            # Print the order register for inspection.
             # To use: slice access_densities with indices [0] and [1].
             access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
+
+            # If the last 20 episodes are taking place, save order regs and access densities.
+            if i_episode >= train_episodes - 20:
+                last_order_registers.append(self.wh_sim.order_system.order_register)
+                last_access_densities.append(access_densities)
 
             # Print episode training meta info.
             print(f"Finished ep. {i_episode + 1}/{train_episodes}.")
@@ -232,8 +238,11 @@ class TrainGameModel():
         # TODO: Write a function for exporting the order_register to a csv file.
 
         # Save all the generated plots. Based on infeed/outfeed order generation, check before run!
-        self.SaveExperimentResults(train_episodes, all_episode_times,
-                                   access_densities=access_densities)
+        self.SaveExperimentResults(train_episodes,
+                                   all_episode_times,
+                                   last_order_registers=last_order_registers,
+                                   last_access_densities=last_access_densities,
+                                   save_plots=True)
 
     def RunBenchmark(self,
                      n_iterations,
@@ -252,6 +261,8 @@ class TrainGameModel():
         self.startTime = datetime.now()
         all_episode_times = []
         all_episode_rewards = []
+        all_order_registers = []
+        all_access_densities = []
         for iter_i in range(n_iterations):
             # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
             self.wh_sim.ResetState(random_fill_percentage=self.wh_sim.init_fill_perc)
@@ -350,13 +361,16 @@ class TrainGameModel():
             if self.wh_sim.sim_time < max_busy_till:
                 self.wh_sim.sim_time = max_busy_till
 
+            # To use: slice access_densities with indices [0] and [1].
+            access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
+
             # Append the iteration's time to the list of all times.
             all_episode_times.append(self.wh_sim.sim_time)
             all_episode_rewards.append(self.episode_reward)
+            all_order_registers.append(self.wh_sim.order_system.order_register)
+            all_access_densities.append(access_densities)
 
             # Print the order register for inspection.
-            # To use: slice access_densities with indices [0] and [1].
-            access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
 
             # print("Start time matrix:")
             # self.wh_sim.PrintStartTimeMatrix()
@@ -387,8 +401,12 @@ class TrainGameModel():
         print(
             f"Time taken: {t_seconds}s. Episodes/second: {round(n_iterations / t_seconds, 2)}\n\n")
 
-        self.SaveExperimentResults(n_iterations, all_episode_rewards, access_densities,
-                                   exp_name=benchmark_policy)
+        self.SaveExperimentResults(n_iterations,
+                                   all_episode_rewards,
+                                   last_order_registers=all_order_registers,
+                                   last_access_densities=all_access_densities,
+                                   exp_name=benchmark_policy,
+                                   save_plots=True)
 
     def SaveBestModel(self):
         # Determine whether to save as a new model based on the principle of least total time consumption
@@ -397,7 +415,7 @@ class TrainGameModel():
                 self.train_episodes) + ".model"
             self.neural_network.save_model(savePath)  # 保存模型
 
-    def DrawAccessDensity(self, access_densities, exp_name=None):
+    def DrawAccessDensity(self, access_densities, exp_name=None, save_fig=True):
         """Draw the access densities for shelves given infeed and outfeed order counts."""
         dims = self.wh_sim.dims
         in_dens = np.reshape(access_densities[0], (dims[0] * dims[1], dims[2]))
@@ -441,28 +459,19 @@ class TrainGameModel():
         # Save before show. When show is called, the fig is removed from memory.
         n_ord = np.sum(access_densities)
         if exp_name is not None:
-            plt.suptitle(f"Shelf access densities for {exp_name}. n_orders = {n_ord}")
+            plt.suptitle(f"Mean shelf access densities for {exp_name}. n_orders = {n_ord}")
         else:
-            plt.suptitle(f"Shelf access densities for AC network. n_orders = {n_ord}")
-        plt.savefig("Access densities.jpg")
+            plt.suptitle(f"Mean shelf access densities for AC network. n_orders = {n_ord}")
+
+        if save_fig:
+            plt.savefig("Access densities.jpg")
         plt.show()
 
-    def DrawAccessOrder(self, all_episode_rewards, exp_name=None):
+    def DrawAccessOrder(self, all_episode_rewards, order_matrix, exp_name=None, save_fig=True):
         """Draw a warehouse-like matrix where each entry denotes when that shelf was filled. This
            plot is only informative when either completely filling an empty warehouse, or emptying a
            full warehouse."""
         dims = self.wh_sim.dims
-        orders = self.wh_sim.order_system.order_register
-        order_matrix = np.zeros((dims[0], dims[1], dims[2]), dtype=int)
-
-        if len(orders.keys()) > dims[0] * dims[1] * dims[2]:
-            raise Exception("Too many processed orders to draw the shelf access order!")
-
-        for (order_id, order_data) in orders.items():
-            (r, f, c) = self.wh_sim.shelf_rfc[order_data['shelf_id']]
-            order_matrix[r, f, c] = order_id
-
-        order_matrix = np.reshape(order_matrix, (dims[0] * dims[1], dims[2]))
 
         halfway_point = int(dims[0] * dims[1] / 2)
         left_order_matrix = order_matrix[0:halfway_point, :]
@@ -499,13 +508,15 @@ class TrainGameModel():
 
         # Save before show. When show is called, the fig is removed from mem.
         if exp_name is not None:
-            plt.suptitle("Shelf access order" + f" for {exp_name}. t = {avg_cumul_time}s")
+            plt.suptitle("Mean shelf access order" + f" for {exp_name}. t = {avg_cumul_time}s")
         else:
-            plt.suptitle("Shelf access order AC network")
-        plt.savefig("storage order.jpg")
+            plt.suptitle("Mean shelf access order AC network")
+
+        if save_fig:
+            plt.savefig("storage order.jpg")
         plt.show()
 
-    def DrawResults(self, all_episode_rewards, exp_name=None):
+    def DrawResults(self, all_episode_rewards, exp_name=None, save_fig=True):
         # Drawing
         print("DrawResults")
 
@@ -518,7 +529,8 @@ class TrainGameModel():
         plt.ylabel("Simulation time/makespan")
         all_episode_rewards = [reward for reward in all_episode_rewards]
         plt.plot(all_episode_rewards, color="g")
-        plt.savefig("performance trajectory.jpg")
+        if save_fig:
+            plt.savefig("performance trajectory.jpg")
 
         # mean_list = [np.mean(all_episode_rewards)] * len(all_episode_rewards)
         if exp_name is None:
@@ -535,13 +547,57 @@ class TrainGameModel():
 
             zero_list = [0] * len(all_episode_rewards)
             plt.plot(zero_list, linestyle='--', color="k")
-            plt.savefig("training loss trajectory.jpg")
+            if save_fig:
+                plt.savefig("training loss trajectory.jpg")
         else:
             pass
         plt.show()
 
+    def CalcMeanOrderMatrix(self, last_order_registers):
+        """Calculates the mean shelf access order."""
+        dims = self.wh_sim.dims
+        nr_regs = len(last_order_registers)
+        mean_order_matrix = np.zeros((dims[0] * dims[1], dims[2]), dtype=int)
+
+        for order_reg in last_order_registers:
+            order_matrix = np.zeros((dims[0], dims[1], dims[2]), dtype=int)
+
+            if len(order_reg.keys()) > self.wh_sim.num_locs:
+                raise Exception("Too many processed orders to draw the shelf access order!")
+
+            for (order_id, order_data) in order_reg.items():
+                (r, f, c) = self.wh_sim.shelf_rfc[order_data['shelf_id']]
+                order_matrix[r, f, c] = order_id
+
+            order_matrix = np.reshape(order_matrix, (dims[0] * dims[1], dims[2]))
+            mean_order_matrix += order_matrix
+
+        mean_order_matrix = mean_order_matrix / nr_regs
+        return mean_order_matrix.astype(int)
+
+    def CalcMeanAccessDensity(self, last_access_densities):
+        """Calculates the mean shelf access density."""
+        dims = self.wh_sim.dims
+        nr_mats = len(last_access_densities)
+        mean_access_density_matrix = np.zeros((2, dims[0], dims[1], dims[2]), dtype=np.float64)
+
+        for dens_mat in last_access_densities:
+            if mean_access_density_matrix.shape != dens_mat.shape:
+                print(mean_access_density_matrix.shape, dens_mat.shape)
+                raise Exception("Tried to calculate mean access density matrix, but shapes differ!")
+
+            mean_access_density_matrix += dens_mat
+
+        mean_access_density_matrix = mean_access_density_matrix / nr_mats
+        return mean_access_density_matrix.round(2)
+
     # TODO: Finish method for saving experiment results and metadata.
-    def SaveExperimentResults(self, nr_of_episodes, all_episode_rewards, access_densities=None, exp_name=None):
+    def SaveExperimentResults(self, nr_of_episodes,
+                              all_episode_rewards,
+                              last_order_registers=None,
+                              last_access_densities=None,
+                              exp_name=None,
+                              save_plots=True):
         """Method for saving the parameters and results of an experiment to a folder."""
         # Navigate to the experiment folder, create the folder for this run.
         # Go up two levels to the 'Thesis' folder.
@@ -596,21 +652,26 @@ class TrainGameModel():
             f.write(f"Average episode reward sum: {avg_episode_reward}")
             f.write(f"Best episode: {min_episode_number}")
             f.write(f"Best episode time: {round(min_episode_reward, 2)} seconds")
-            f.write(f"")
-            f.write(f"")
+            # f.write(f"")
+            # f.write(f"")
         f.close()
 
         # Save the figures for stochastic benchmarks
         if exp_name in ('random', 'eps_greedy'):
-            self.DrawResults(all_episode_rewards, exp_name=exp_name)
+            self.DrawResults(all_episode_rewards, exp_name=exp_name, save_fig=save_plots)
         elif exp_name is None:
-            self.DrawResults(all_episode_rewards)
+            self.DrawResults(all_episode_rewards, save_fig=save_plots)
         else:
             pass
 
-        if self.wh_sim.episode_length <= self.wh_sim.num_locs:
-            self.DrawAccessOrder(all_episode_rewards, exp_name=exp_name)
-        # self.DrawAccessDensity(access_densities, exp_name=exp_name)
+        if last_order_registers is not None:
+            mean_order_matrix = self.CalcMeanOrderMatrix(last_order_registers)
+            self.DrawAccessOrder(all_episode_rewards, mean_order_matrix,
+                                 exp_name=exp_name, save_fig=save_plots)
+        if last_access_densities is not None:
+            mean_access_density_matrix = self.CalcMeanAccessDensity(last_access_densities)
+            self.DrawAccessDensity(mean_access_density_matrix,
+                                   exp_name=exp_name, save_fig=save_plots)
         # TODO: make it so you can choose to save the figures or not (less clutter in storage).
 
         # Return to the original directory in case we're executing multiple benchmarks in sequence.
@@ -652,15 +713,15 @@ def main():
     # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
     # locally! See SaveExperimentResults()
     # TODO: change col_by_col to rfc or something
-    train_plant_model.RunBenchmark(5, scenario=scenario, benchmark_policy='random')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='eps_greedy')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rcf_policy')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='cfr_policy')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='frc_policy')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='fcr_policy')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
+    # train_plant_model.RunBenchmark(10, scenario=scenario, benchmark_policy='random')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(10, scenario=scenario, benchmark_policy='eps_greedy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rcf_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='cfr_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='frc_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='fcr_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
     # sys.exit("training end")
 
 
