@@ -21,6 +21,7 @@ class TrainGameModel():
 
         # summary(self.neural_network.policy_value_net, input_size=(6, 12, 6))
         self.endTime = 0
+        self.lr_init = lr
         self.lr = lr
         self.lr_decay = lr_decay
         self.discount_factor = discount_factor
@@ -151,20 +152,21 @@ class TrainGameModel():
 
                 all_action.append(action)
                 # Have the selected action get executed by the warehouse sim.
-                try:
-                    # Process the action, returns the time at which the action is done.
-                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
-                except Exception:
-                    # TODO: Make sure the system doesn't generate illegal orders.
-                    print("Picking random action from available shelves.")
-                    print(f"free IDs: {self.wh_sim.GetIds(True)}")
-                    print(f"Free locs: {free_locs}")
-                    print(next_order)
-                    self.wh_sim.PrintOccupancy()
-                    av_ids = self.wh_sim.GetIds(infeed)
-                    action = random.choice(av_ids)
-                    # Process the action, returns the time at which the action is done.
-                    action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+                action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+                # try:
+                #     # Process the action, returns the time at which the action is done.
+                #     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+                # except Exception:
+                #     # TODO: Make sure the system doesn't generate illegal orders.
+                #     print("Picking random action from available shelves.")
+                #     print(f"free IDs: {self.wh_sim.GetIds(True)}")
+                #     print(f"Free locs: {free_locs}")
+                #     print(next_order)
+                #     self.wh_sim.PrintOccupancy()
+                #     av_ids = self.wh_sim.GetIds(infeed)
+                #     action = random.choice(av_ids)
+                #     # Process the action, returns the time at which the action is done.
+                #     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
 
                 max_busy_till = max(self.wh_sim.agent_busy_till.values())
                 candidate_reward = prev_max_busy_till - max_busy_till
@@ -177,8 +179,8 @@ class TrainGameModel():
                 # TODO: find a more logical reward mechanism.
                 # reward = self.wh_sim.prev_action_time - action_time
                 # Try this: reward is relative action time (i.e. response time)
-                # reward = -action_time + self.wh_sim.sim_time
-                reward = candidate_reward
+                reward = -action_time + self.wh_sim.sim_time
+                # reward = candidate_reward
                 self.neural_network.add_reward(reward)
                 self.episode_reward += reward
                 all_reward.append(reward)
@@ -194,7 +196,7 @@ class TrainGameModel():
                 self.wh_sim.sim_time = max_busy_till
 
             # Adjust the learning rate.
-            if i_episode % self.change_count == 0:
+            if i_episode != 0 and i_episode % self.change_count == 0:
                 self.lr = self.lr * self.lr_decay
 
             # Perform a training step for the neural network.
@@ -230,7 +232,7 @@ class TrainGameModel():
         # TODO: Write a function for exporting the order_register to a csv file.
 
         # Save all the generated plots. Based on infeed/outfeed order generation, check before run!
-        self.SaveExperimentResults(train_episodes, all_episode_rewards,
+        self.SaveExperimentResults(train_episodes, all_episode_times,
                                    access_densities=access_densities)
 
     def RunBenchmark(self,
@@ -513,8 +515,8 @@ class TrainGameModel():
         else:
             plt.title("Storage performance AC network")
         plt.xlabel("Nr. of training episodes")
-        plt.ylabel("Cumulative order fulfillment time")
-        all_episode_rewards = [-reward for reward in all_episode_rewards]
+        plt.ylabel("Simulation time/makespan")
+        all_episode_rewards = [reward for reward in all_episode_rewards]
         plt.plot(all_episode_rewards, color="g")
         plt.savefig("performance trajectory.jpg")
 
@@ -572,7 +574,9 @@ class TrainGameModel():
 
         os.chdir(ex_dir)  # Now we're ready to store experiment parameters and results.
 
-        avg_cumul_time = -round(sum(all_episode_rewards) / len(all_episode_rewards), 2)
+        avg_episode_reward = -round(sum(all_episode_rewards) / len(all_episode_rewards), 2)
+        min_episode_reward = min(all_episode_rewards)
+        min_episode_number = np.argmin(all_episode_rewards)
 
         # Begin writing experiment summary/metadata.
         run_time = self.endTime - self.startTime
@@ -586,10 +590,14 @@ class TrainGameModel():
             f.write(f"Episode length: {self.wh_sim.episode_length}\n")
             f.write(f"Number of historical RTMs: {self.wh_sim.num_historical_rtms}\n")
             f.write(f"Number of episodes: {nr_of_episodes}\n")
-            f.write(f"Learning rate: {self.lr}\n")
+            f.write(f"Learning rate: {self.lr_init}\n")
             f.write(f"Learning rate decay: {self.lr_decay}, every {self.change_count} episodes\n\n")
 
-            f.write(f"Average cumulative order fulfillment time: {avg_cumul_time}")
+            f.write(f"Average episode reward sum: {avg_episode_reward}")
+            f.write(f"Best episode: {min_episode_number}")
+            f.write(f"Best episode time: {round(min_episode_reward, 2)} seconds")
+            f.write(f"")
+            f.write(f"")
         f.close()
 
         # Save the figures for stochastic benchmarks
@@ -616,7 +624,7 @@ def main():
     num_floors = 6
     num_cols = 6
     episode_length = 72
-    num_hist_rtms = 1
+    num_hist_rtms = 5
     num_hist_occs = 0  # Currently not in use!
     vt_speed = 30.0
     sh_speed = 1.0
@@ -632,21 +640,26 @@ def main():
                 percentage_filled)
     scenario = "infeed"
 
-    train_episodes = 10  # This value exceeding 5000 is not recommended
-    train_plant_model = TrainGameModel(wh_sim)
+    train_episodes = 4000  # This value exceeding 5000 is not recommended
+    train_plant_model = TrainGameModel(wh_sim,
+                                       lr=1.e-5,
+                                       lr_decay=0.9,
+                                       lr_decay_interval=400,
+                                       discount_factor=1.0)
     # Train the network; regular operation.
     # train_plant_model.RunTraining(train_episodes, scenario)
 
     # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
     # locally! See SaveExperimentResults()
-    # train_plant_model.RunBenchmark(50, scenario=scenario, benchmark_policy='random')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
-    # train_plant_model.RunBenchmark(50, scenario=scenario, benchmark_policy='eps_greedy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col_alt')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor_alt')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
+    # TODO: change col_by_col to rfc or something
+    train_plant_model.RunBenchmark(5, scenario=scenario, benchmark_policy='random')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='eps_greedy')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col_alt')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor_alt')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
     train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
     # sys.exit("training end")
 

@@ -331,9 +331,9 @@ class Warehouse():
                 self.rtm[r, f, c] = self.CalcShelfAccessTime(shelf_id, infeed=False)
 
         # Normalize the RTM to a value between 0 and 1.
-        # _max = self.rtm.max()
-        # _min = self.rtm.min()
-        # self.rtm = (self.rtm - _min) / (_max - _min)
+        _max = self.rtm.max()
+        _min = self.rtm.min()
+        self.rtm = (self.rtm - _min) / (_max - _min)
 
     def ReadyTransporters(self, target_shelf_id, infeed=True):
         """
