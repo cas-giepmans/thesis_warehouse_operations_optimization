@@ -11,6 +11,7 @@ import copy
 import warnings
 import sys
 
+
 from numba import jit
 
 
@@ -271,7 +272,7 @@ class PolicyValueNet:  # Create neural networks and train neural networks
 
     # TODO: consider rewriting for @jit(nopython=True) compilation.
     # @jit(forceobj=True)
-    def select_action(self, state, availablePos):
+    def select_action(self, state, availablePos, epsilon=None):
         state = torch.from_numpy(state).float().unsqueeze(0)
         # print("state value in Array(input to the neural network):", state)
         probs, state_value = self.policy_value_net(state)
@@ -279,15 +280,23 @@ class PolicyValueNet:  # Create neural networks and train neural networks
         # print("probs_before:", probs)
         max_prob = 0
         max_prob_index = 0
-        for temp_i in range(len(availablePos)):
-            # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
-            #     probs.data[0][temp_i] = 1e-8
-            if availablePos[temp_i] == 0:
-                probs.data[0][temp_i] = 0
 
-            if probs.data[0][temp_i] >= max_prob:
-                max_prob = probs.data[0][temp_i]
-                max_prob_index = temp_i
+        for idx, pos_av in enumerate(availablePos):
+            if pos_av is False:
+                probs.data[0][idx] = 0
+            if probs.data[0][idx] >= max_prob:
+                max_prob = probs.data[0][idx]
+                max_prob_index = idx
+
+        # for temp_i in range(len(availablePos)):
+        #     # if probs.data[0][temp_i] <= 1e-8:  # Prevent the appearance of nan, indeterminate
+        #     #     probs.data[0][temp_i] = 1e-8
+        #     if availablePos[temp_i] == 0:
+        #         probs.data[0][temp_i] = 0
+
+        #     if probs.data[0][temp_i] >= max_prob:
+        #         max_prob = probs.data[0][temp_i]
+        #         max_prob_index = temp_i
 
         if max_prob <= 1e-8:  # Prevent the appearance of nan, indeterminate
             probs.data[0][max_prob_index] = 1e-8
@@ -295,37 +304,46 @@ class PolicyValueNet:  # Create neural networks and train neural networks
         # create a categorical distribution over the list of probabilities of actions
         m = Categorical(probs)
 
+        rand_val = np.random.uniform()
+        if rand_val > epsilon:
+            action = torch.tensor(max_prob_index)
+        else:
+            action = m.sample()
+            # print(action)
+
         # m = Categorical(probs.clip_by_value(probs, 1e-8, 1.0))
 
         # and sample an action using the distribution
+        # print("probs: ", probs)
+        # print("probs_aaaa: ", probs_aaaaa)
 
-        try:
-            action = m.sample()
-            temp_counter = 0
-            while True:
-                if temp_counter >= 10:
-                    # print("temp_i:", temp_i)
-                    # print("action:", action.item())
-                    # print("state:", state)
-                    # print("availablePos:", availablePos)
-                    # print("probs:", probs)
-                    # print("probs_aaaaa:", probs_aaaaa)
-                    # print("state_value:", state_value)
-                    # for label, p in enumerate(probs[0]):
-                    #     print(f'{label:2}: {100*probs[0][label]}%')
-                    # sys.exit()
-                    return
-                if availablePos[action] == 0:
-                    action = m.sample()
-                    # print(temp_counter)
-                    temp_counter = temp_counter+1
-                else:
-                    break
-        except:
-            print("state:", state)
-            print("availablePos:", availablePos)
-            print("probs:", probs)
-            print("state_value:", state_value)
+        # try:
+        #     action = m.sample()
+        #     temp_counter = 0
+        #     while True:
+        #         if temp_counter >= 10:
+        #             # print("temp_i:", temp_i)
+        #             # print("action:", action.item())
+        #             # print("state:", state)
+        #             # print("availablePos:", availablePos)
+        #             # print("probs:", probs)
+        #             # print("probs_aaaaa:", probs_aaaaa)
+        #             # print("state_value:", state_value)
+        #             # for label, p in enumerate(probs[0]):
+        #             #     print(f'{label:2}: {100*probs[0][label]}%')
+        #             # sys.exit()
+        #             return
+        #         if availablePos[action] == 0:
+        #             action = m.sample()
+        #             # print(temp_counter)
+        #             temp_counter = temp_counter+1
+        #         else:
+        #             break
+        # except:
+        #     print("state:", state)
+        #     print("availablePos:", availablePos)
+        #     print("probs:", probs)
+        #     print("state_value:", state_value)
         # print(action)
 
         # save to action buffer
@@ -364,6 +382,7 @@ class PolicyValueNet:  # Create neural networks and train neural networks
         # value is the value of the state as given by the Critic network,
         # R is the normalized, discounted reward as observed in the simulation.
         for (log_prob, value), R in zip(saved_actions, returns):
+            # Here they use the "Advantage" function
             advantage = R - value.item()
             # print("R:", R)
             # print("value:", value)

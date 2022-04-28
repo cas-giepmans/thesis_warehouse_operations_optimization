@@ -50,9 +50,25 @@ class TrainGameModel():
         all_episode_times = []
         all_episode_rewards = []
         dims = self.wh_sim.dims
+
+        # Specify the exploration strategy here.
+        init_eps = 1.0
+        fin_eps = 0.05
+        epsilon = 1.0
+        eps_trajectory = [0.1, 0.5, 1.0]
+
         for i_episode in range(train_episodes):
             # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
             wh_state = self.wh_sim.ResetState(random_fill_percentage=self.wh_sim.init_fill_perc)
+
+            # Set epsilon here.
+            point_in_training = i_episode / train_episodes
+            if point_in_training < eps_trajectory[0]:
+                epsilon = init_eps
+            elif point_in_training < eps_trajectory[1]:
+                epsilon = max((1.0 - 2 * point_in_training), fin_eps)
+            else:
+                epsilon = fin_eps
 
             # Reset local variables.
             self.episode_reward = 0.0
@@ -117,10 +133,12 @@ class TrainGameModel():
                 # Select an action with the NN based on the state, order type and occupancy.
                 # TODO: Make sure the selected action is a usable shelf_id!
                 if infeed:
-                    action = self.neural_network.select_action(np.array(wh_state), free_locs)
+                    action = self.neural_network.select_action(
+                        np.array(wh_state), free_locs, epsilon)
                     infeed_count += 1
                 elif not infeed:
-                    action = self.neural_network.select_action(np.array(wh_state), occupied_locs)
+                    action = self.neural_network.select_action(
+                        np.array(wh_state), occupied_locs, epsilon)
                     outfeed_count += 1
                 else:
                     raise Exception(f"""The order type of order {next_order_id}
