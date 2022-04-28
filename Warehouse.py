@@ -124,35 +124,35 @@ class Warehouse():
         # TODO: this can be done neater, with recursion. Specify policy type, adjust recursion order.
         # Order in which shelves are accessed for col_by_col policy.
         # !!!: Assumption: we access floors in order, not randomly.
-        self.cbc_normal_shelf_sequence = []
+        self.rcf_sequence = []
         for r in range(self.num_rows):
             for c in range(self.num_cols):
                 for f in range(self.num_floors):
-                    self.cbc_normal_shelf_sequence.append(self.shelf_id[r, f, c])
+                    self.rcf_sequence.append(self.shelf_id[r, f, c])
 
         # Order in which shelves are accessed for col_by_col_alt policy.
         # !!!: Assumption: we access floors in order, not randomly.
-        self.cbc_alt_shelf_sequence = []
+        self.cfr_sequence = []
         for c in range(self.num_cols):
             for f in range(self.num_floors):
                 for r in range(self.num_rows):
-                    self.cbc_alt_shelf_sequence.append(self.shelf_id[r, f, c])
+                    self.cfr_sequence.append(self.shelf_id[r, f, c])
 
         # Order in which shelves are accessed for tier_by_tier policy.
         # !!!: Assumption: we access columns in order, not randomly.
-        self.fbf_normal_shelf_sequence = []
+        self.frc_sequence = []
         for f in range(self.num_floors):
             for r in range(self.num_rows):
                 for c in range(self.num_cols):
-                    self.fbf_normal_shelf_sequence.append(self.shelf_id[r, f, c])
+                    self.frc_sequence.append(self.shelf_id[r, f, c])
 
         # Order in which shelves are accessed for tier_by_tier_alt policy.
         # !!!: Assumption: we access floors in order, not randomly.
-        self.fbf_alt_shelf_sequence = []
+        self.fcr_sequence = []
         for f in range(self.num_floors):
             for c in range(self.num_cols):
                 for r in range(self.num_rows):
-                    self.fbf_alt_shelf_sequence.append(self.shelf_id[r, f, c])
+                    self.fcr_sequence.append(self.shelf_id[r, f, c])
 
         # Given that there are 6 combinations of r, f and c, here are the last two:
         self.rfc_sequence = []
@@ -591,8 +591,8 @@ class Warehouse():
 
     def GetNextBenchmarkPolicyShelfId(self, bench_pol="random", infeed=True, eps=0.1) -> np.int16:
         """Get the next shelf ID according to a benchmark policy. Possible benchmark policies are
-        'random', 'greedy', 'eps_greedy', 'col_by_col', 'col_by_col_alt', 'floor_by_floor' and
-        'floor_by_floor_alt'. Only meant for benchmarking infeed-only scenarios."""
+        'random', 'greedy', 'eps_greedy', 'rcf_policy', 'cfr_policy', 'frc_policy' and
+        'fcr_policy'. Only meant for benchmarking infeed-only scenarios."""
 
         if bench_pol == 'random':
             return self.GetRandomShelfId(infeed=infeed)
@@ -601,15 +601,14 @@ class Warehouse():
         elif bench_pol == 'eps_greedy':
             return self.GetEpsGreedyShelfId(infeed=infeed, eps=eps)
 
-        elif bench_pol == 'col_by_col':
-            return self.cbc_normal_shelf_sequence[self.action_counter]
-        elif bench_pol == 'col_by_col_alt':
-            return self.cbc_alt_shelf_sequence[self.action_counter]
-        elif bench_pol == 'floor_by_floor':
-            return self.fbf_normal_shelf_sequence[self.action_counter]
-        elif bench_pol == 'floor_by_floor_alt':
-            return self.fbf_alt_shelf_sequence[self.action_counter]
-
+        elif bench_pol == 'rcf_policy':
+            return self.rcf_sequence[self.action_counter]
+        elif bench_pol == 'cfr_policy':
+            return self.cfr_sequence[self.action_counter]
+        elif bench_pol == 'frc_policy':
+            return self.frc_sequence[self.action_counter]
+        elif bench_pol == 'fcr_policy':
+            return self.fcr_sequence[self.action_counter]
         elif bench_pol == 'rfc_policy':
             return self.rfc_sequence[self.action_counter]
         elif bench_pol == 'crf_policy':

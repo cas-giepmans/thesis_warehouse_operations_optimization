@@ -33,10 +33,10 @@ class TrainGameModel():
         self.benchmark_policies = ["random",
                                    "greedy",
                                    "eps_greedy",
-                                   "col_by_col",
-                                   "col_by_col_alt",
-                                   "floor_by_floor",
-                                   "floor_by_floor_alt",
+                                   "rcf_policy",
+                                   "cfr_policy",
+                                   "frc_policy",
+                                   "fcr_policy",
                                    "rfc_policy",
                                    "crf_policy"]
 
@@ -655,10 +655,10 @@ def main():
     train_plant_model.RunBenchmark(5, scenario=scenario, benchmark_policy='random')
     train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='eps_greedy')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='col_by_col_alt')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor')
-    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='floor_by_floor_alt')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rcf_policy')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='cfr_policy')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='frc_policy')
+    train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='fcr_policy')
     train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
     train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
     # sys.exit("training end")
