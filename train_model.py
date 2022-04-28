@@ -171,6 +171,10 @@ class TrainGameModel():
                 if is_end:
                     break
 
+            # Set the sim time to when the last agent finishes its scheduled task.
+            if self.wh_sim.sim_time < max_busy_till:
+                self.wh_sim.sim_time = max_busy_till
+
             # Adjust the learning rate.
             if i_episode % self.change_count == 0:
                 self.lr = self.lr * self.lr_decay
