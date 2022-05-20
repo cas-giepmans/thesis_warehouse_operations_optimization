@@ -10,7 +10,7 @@ from datetime import date, datetime
 
 
 class TrainGameModel():
-    def __init__(self, wh, lr=1.e-4, lr_decay=0.9, lr_decay_interval=200, discount_factor=1.0):
+    def __init__(self, wh, lr=1.e-4, lr_decay=0.9, lr_decay_interval=200, discount_factor=1.0, reward_type="makespan_full_spectrum"):
         self.wh_sim = wh
         self.neural_network = trainNet(
             wh.num_cols,
