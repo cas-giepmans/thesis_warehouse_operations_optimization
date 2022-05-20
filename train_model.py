@@ -30,6 +30,10 @@ class TrainGameModel():
         self.change_count = lr_decay_interval
 
         self.scenarios = ["infeed", "outfeed", "both"]
+        self.all_reward_types = ["rel_action_time",
+                                 "makespan_half_spectrum",
+                                 "makespan_full_spectrum"]
+        self.reward_type = reward_type
         self.benchmark_policies = ["random",
                                    "greedy",
                                    "eps_greedy",
@@ -42,10 +46,13 @@ class TrainGameModel():
 
     def RunTraining(self, train_episodes, scenario="infeed"):
 
-        # First perform a check.
+        # First perform some checks.
         if scenario not in self.scenarios:
             raise ValueError(
                 f"There is no scenario called '{scenario}'! Specify 'infeed', 'outfeed' or 'both'.")
+
+        if self.reward_type not in self.all_reward_types:
+            raise ValueError(f"Reward type {self.reward_type} is not a valid reward type!")
 
         self.startTime = datetime.now()
         all_episode_times = []
@@ -148,41 +155,32 @@ class TrainGameModel():
                                     ({next_order["order_type"]}) is wrong! Time:
                                     {self.wh_sim.sim_time}.""")
 
-                # Get a random shelf ID (for testing).
-                # action = self.wh_sim.GetRandomShelfId(infeed=infeed)
-                prev_max_busy_till = max_busy_till
-
-                all_action.append(action)
                 # Have the selected action get executed by the warehouse sim.
                 action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
-                # try:
-                #     # Process the action, returns the time at which the action is done.
-                #     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
-                # except Exception:
-                #     # TODO: Make sure the system doesn't generate illegal orders.
-                #     print("Picking random action from available shelves.")
-                #     print(f"free IDs: {self.wh_sim.GetIds(True)}")
-                #     print(f"Free locs: {free_locs}")
-                #     print(next_order)
-                #     self.wh_sim.PrintOccupancy()
-                #     av_ids = self.wh_sim.GetIds(infeed)
-                #     action = random.choice(av_ids)
-                #     # Process the action, returns the time at which the action is done.
-                #     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
+                all_action.append(action)
 
+                # Update maximum busy time.
+                prev_max_busy_till = max_busy_till
                 max_busy_till = max(self.wh_sim.agent_busy_till.values())
-                candidate_reward = prev_max_busy_till - max_busy_till
+
+                # Calculate the reward according to the specified reward type.
+                if self.reward_type == "rel_action_time":
+                    # Reward is negative proportional to response time for action.
+                    candidate_reward = -action_time + self.wh_sim.sim_time
+                elif self.reward_type == "makespan_half_spectrum":
+                    # Reward is negative if makespan increased, else zero.
+                    candidate_reward = prev_max_busy_till - max_busy_till
+                elif self.reward_type == "makespan_full_spectrum":
+                    # Reward is negative if makespan increased, else positive.
+                    candidate_reward = prev_max_busy_till - \
+                        max_busy_till + (max_busy_till - action_time)
 
                 # Finish and log the executed order.
                 finish_time = action_time  # + self.wh_sim.sim_time
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
 
-                # Calculate and log the reward.
-                # TODO: find a more logical reward mechanism.
-                # reward = self.wh_sim.prev_action_time - action_time
-                # Try this: reward is relative action time (i.e. response time)
-                reward = -action_time + self.wh_sim.sim_time
-                # reward = candidate_reward
+                # Add and log the reward.
+                reward = candidate_reward
                 self.neural_network.add_reward(reward)
                 self.episode_reward += reward
                 all_reward.append(reward)
@@ -257,6 +255,8 @@ class TrainGameModel():
         if benchmark_policy not in self.benchmark_policies:
             raise ValueError(
                 f"There is no benchmark called '{benchmark_policy}'! Check the arguments of your function call.")
+        if self.reward_type not in self.all_reward_types:
+            raise ValueError(f"Reward type {self.reward_type} is not a valid reward type!")
 
         self.startTime = datetime.now()
         all_episode_times = []
@@ -313,43 +313,45 @@ class TrainGameModel():
                 # print(f"Order picked, type is infeed: {infeed}.")
                 # Calculate a new RTM.
                 self.wh_sim.CalcRTM()
+                # self.wh_sim.PrintRTM()
 
                 # Get an action given the defined benchmark policy.
                 action = self.wh_sim.GetNextBenchmarkPolicyShelfId(
                     bench_pol=benchmark_policy, infeed=infeed)
-                # infeed_count += 1
+                infeed_count += 1
                 # print(f"picked an action: {action}.")
                 prev_max_busy_till = max_busy_till
 
                 all_action.append(action)
                 # Have the selected action get executed by the warehouse sim.
-                # try:
                 # Process the action, returns the time at which the action is done.
                 action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
-                # except Exception:
-                #     print("Picking random action from available shelves.")
-                #     print(f"free IDs: {self.wh_sim.GetIds(True)}")
-                #     # print(f"Free locs: {free_locs}")
-                #     print(next_order)
-                #     self.wh_sim.PrintOccupancy()
-                #     av_ids = self.wh_sim.GetIds(infeed)
-                #     action = random.choice(av_ids)
-                #     # Process the action, returns the time at which the action is done.
-                #     action_time, is_end = self.wh_sim.ProcessAction(infeed, action)
 
+                # Update maximum busy time.
+                prev_max_busy_till = max_busy_till
                 max_busy_till = max(self.wh_sim.agent_busy_till.values())
-                candidate_reward = prev_max_busy_till - max_busy_till
+
+                # Calculate the reward according to the specified reward type.
+                if self.reward_type == "rel_action_time":
+                    # Reward is negative proportional to response time for action.
+                    candidate_reward = -action_time + self.wh_sim.sim_time
+                elif self.reward_type == "makespan_half_spectrum":
+                    # Reward is negative if makespan increased, else zero.
+                    candidate_reward = prev_max_busy_till - max_busy_till
+                elif self.reward_type == "makespan_full_spectrum":
+                    # Reward is negative if makespan increased, else positive.
+                    candidate_reward = prev_max_busy_till - \
+                        max_busy_till + (max_busy_till - action_time)
+
                 # Finish and log the executed order.
                 finish_time = action_time
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
 
                 # Calculate and log the reward.
-                reward = -action_time + self.wh_sim.sim_time
+                # reward = -action_time + self.wh_sim.sim_time
+                reward = candidate_reward
                 self.episode_reward += reward
                 all_reward.append(reward)
-                # print(f"For order: {self.wh_sim.action_counter}")
-                # print(f"Current reward: {reward}")
-                # print(f"Cand. reward:   {candidate_reward}\n")
 
                 # Log the action time.
                 self.wh_sim.prev_action_time = action_time
@@ -649,9 +651,11 @@ class TrainGameModel():
             f.write(f"Learning rate: {self.lr_init}\n")
             f.write(f"Learning rate decay: {self.lr_decay}, every {self.change_count} episodes\n\n")
 
-            f.write(f"Average episode reward sum: {avg_episode_reward}")
-            f.write(f"Best episode: {min_episode_number}")
-            f.write(f"Best episode time: {round(min_episode_reward, 2)} seconds")
+            f.write(f"Reward type: {self.reward_type}\n")
+
+            f.write(f"Average episode reward sum: {avg_episode_reward}\n")
+            f.write(f"Best episode: {min_episode_number}\n")
+            f.write(f"Best episode time: {round(min_episode_reward, 2)} seconds\n")
             # f.write(f"")
             # f.write(f"")
         f.close()
@@ -701,21 +705,33 @@ def main():
                 percentage_filled)
     scenario = "infeed"
 
-    train_episodes = 4000  # This value exceeding 5000 is not recommended
+    # Create baselines: average makespans for several benchmarks.
+    # random_baseline = train_plant_model.RunBenchmark(
+    #     100, scenario=scenario, benchmark_policy='random', save_results=False)
+    # greedy_baseline = train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='greedy')
+
+    train_episodes = 3600  # This value exceeding 5000 is not recommended
+    # learning_rate = 1.78e-4
+    learning_rate = 1.78e-4
+    learning_rate_decay_factor = 0.8
+    learning_rate_decay_interval = 360
+    reward_discount_factor = 0.86
+    reward_type = "makespan_half_spectrum"
     train_plant_model = TrainGameModel(wh_sim,
-                                       lr=1.e-5,
-                                       lr_decay=0.9,
-                                       lr_decay_interval=400,
-                                       discount_factor=1.0)
+                                       lr=learning_rate,
+                                       lr_decay=learning_rate_decay_factor,
+                                       lr_decay_interval=learning_rate_decay_interval,
+                                       discount_factor=reward_discount_factor,
+                                       reward_type=reward_type)
     # Train the network; regular operation.
-    # train_plant_model.RunTraining(train_episodes, scenario)
+    train_plant_model.RunTraining(train_episodes, scenario)
 
     # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
     # locally! See SaveExperimentResults()
     # TODO: change col_by_col to rfc or something
-    # train_plant_model.RunBenchmark(10, scenario=scenario, benchmark_policy='random')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='greedy')
-    # train_plant_model.RunBenchmark(10, scenario=scenario, benchmark_policy='eps_greedy')
+    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='random')
+    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='eps_greedy')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rcf_policy')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='cfr_policy')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='frc_policy')
