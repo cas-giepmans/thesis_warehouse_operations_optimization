@@ -672,10 +672,12 @@ class Warehouse():
 
     def SetRandomOccupancy(self, fill_percentage=0.5):
         """Randomly sets a percentage of shelves to either occupied or not."""
-        random_bools = (np.random.rand(self.num_locs) < fill_percentage).astype(bool)
-        random_array = np.reshape(np.asarray(random_bools, dtype=bool),
-                                  (self.dims[0], self.dims[1], self.dims[2]))
-        self.shelf_occupied = random_array
+        locs = [*range(self.num_locs - 1)]
+        init_fills = np.random.choice(locs, size=int(
+            self.num_locs * fill_percentage), replace=False)
+        for shelf_id in init_fills:
+            r, f, c = self.shelf_rfc[shelf_id]
+            self.shelf_occupied[r, f, c] = True
 
     def GetShelfAccessDensities(self, normalized=True, print_it=False):
         """Calculate and return the access density matrix for an episode."""
