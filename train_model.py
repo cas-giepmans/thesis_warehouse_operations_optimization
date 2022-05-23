@@ -13,6 +13,30 @@ import copy
 
 class TrainGameModel():
     def __init__(self, wh, lr=1.e-4, lr_decay=0.9, lr_decay_interval=200, discount_factor=1.0, reward_type="makespan_full_spectrum"):
+        """
+        Initialize the object that governs the training of the network and the running of the
+        simulation.
+
+        Parameters
+        ----------
+        wh : Warehouse
+            The warehouse object.
+        lr : float, optional
+            The initial learning rate. The default is 1.e-4.
+        lr_decay : float, optional
+            Scalar that specifies the decrease of the learning rate at each interval.
+        lr_decay_interval : int, optional
+            Specifies after how many episodes the learning rate is decreased.
+        discount_factor : float, optional
+            Gamma, used for calculating the discounted reward over time.
+        reward_type : str, optional
+            Which reward mechanism to use. The default is "makespan_full_spectrum".
+
+        Returns
+        -------
+        None.
+
+        """
         self.wh_sim = wh
         self.neural_network = trainNet(
             wh.num_cols,
@@ -49,8 +73,33 @@ class TrainGameModel():
 
     def RunTraining(self, train_episodes, scenario="infeed", baselines=["random", "greedy"]):
         """
+        Runs a number of training episodes using the specified warehouse and training settings. Can
+        also run benchmarks to include in the generated plots. Saves experiment (meta)data in a text
+        file.
 
-    def RunTraining(self, train_episodes, scenario="infeed"):
+        Parameters
+        ----------
+        train_episodes : int
+            The number of episodes for which to train the network.
+        scenario : str, optional
+            Whether the warehouse is processing infeed, outfeed or both types of orders.
+        baselines : list(str), optional
+            Which benchmark policies to run in order to calculate baselines (for comparison).
+
+        Raises
+        ------
+        ValueError
+            If the input parameters are defined wrongly.
+        RuntimeError
+            When an incompatible training setting is detected.
+        Exception
+            If the order-to-process is not of a valid type.
+
+        Returns
+        -------
+        None.
+
+        """
 
         # First perform some checks.
         if scenario not in self.scenarios:
@@ -161,6 +210,7 @@ class TrainGameModel():
 
                 # Prepare the state.
                 wh_state = self.wh_sim.BuildState(infeed)
+                # print(infeed_count)
 
                 # Select an action with the NN based on the state, order type and occupancy.
                 # TODO: Make sure the selected action is a usable shelf_id!
@@ -255,8 +305,6 @@ class TrainGameModel():
         t_seconds = (self.endTime - self.startTime).total_seconds()
         print(f"Time taken: {t_seconds}s. Episodes/second: {round(train_episodes / t_seconds, 2)}")
 
-        # TODO: Write a function for exporting the order_register to a csv file.
-
         # Save all the generated plots. Based on infeed/outfeed order generation, check before run!
         self.SaveExperimentResults(train_episodes,
                                    all_episode_times,
@@ -269,6 +317,31 @@ class TrainGameModel():
                      scenario="infeed",
                      benchmark_policy="random",
                      save_results=True):
+        """
+        Run one of the benchmarks. Can generate plots and save them, or return an average makespan.
+
+        Parameters
+        ----------
+        n_iterations : int
+            How many iterations of a benchmark to run to establish an average.
+        scenario : str, optional
+            Whether the warehouse is processing infeed, outfeed or both types of orders.
+        benchmark_policy : str, optional
+            Which benchmark policy to run. The default is "random".
+        save_results : bool, optional
+            Whether to generate and save plots, or return an average. The default is True.
+
+        Raises
+        ------
+        ValueError
+            If any of the input parameters are wrongly defined.
+
+        Returns
+        -------
+        float
+            The average makespan of the run benchmark policy.
+
+        """
 
         # Perform some checks.
         if scenario not in self.scenarios:
@@ -286,7 +359,6 @@ class TrainGameModel():
         all_order_registers = []
         all_access_densities = []
         for iter_i in range(n_iterations):
-            # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
             self.wh_sim.ResetState(random_fill_percentage=self.wh_sim.init_fill_perc)
 
             # Reset local variables.
@@ -299,7 +371,6 @@ class TrainGameModel():
             max_busy_till = 0.0
 
             while True:
-                # print(f"Taking a step in iteration {iter_i}.")
                 # Increase the sim_time by some amount here.
                 # In order to recreate the Lei Luo paper results, new orders should start when the
                 # vertical transporter becomes available.
@@ -321,7 +392,6 @@ class TrainGameModel():
                                                               free_and_occ=free_and_occ,
                                                               item_type=1)
 
-                # print(f"Order generated, now picking next order.")
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
                 next_order_id, next_order = self.wh_sim.order_system.GetNextOrder(
@@ -332,7 +402,6 @@ class TrainGameModel():
                 # See if we're executing an infeed or outfeed order.
                 infeed = True if next_order['order_type'] == "infeed" else False
 
-                # print(f"Order picked, type is infeed: {infeed}.")
                 # Calculate a new RTM.
                 self.wh_sim.CalcRTM()
                 # self.wh_sim.PrintRTM()
