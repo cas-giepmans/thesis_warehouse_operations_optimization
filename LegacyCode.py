@@ -423,3 +423,83 @@ def main():
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
     # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
     # sys.exit("training end")
+
+
+"""________________________________policy_net_AC_pytorch methods.________________________________"""
+
+
+def forward_alt(self, state_input, available_pos):
+    av_pos = torch.BoolTensor([available_pos])
+    print("state_input:")
+    print(state_input)
+    x = F.relu(self.conv1(state_input))
+    print("conv1 output:")
+    print(x)
+    x = F.relu(self.conv2(x))
+    print("conv2 output:")
+    print(x)
+    x = F.relu(self.conv3(x))
+    print("conv3 output:")
+    print(x)
+
+    x_act = F.relu(self.act_conv1(x))
+    print("act_conv1 output:")
+    print(x_act)
+    x_act = x_act.view(-1, self.StateNum * self.posNum)
+    print("reshape using view:")
+    print(x_act)
+    x_act = self.act_fc1(x_act)
+    print("linear1 gradients:")
+    print(self.act_fc1.weight.grad)
+    print(f"linear1 contains nans: {self.act_fc1.weight.grad.isnan().any()}")
+    # TODO: check for exploding gradients during backprop
+    x_act = self.masked_softmax_alt(x_act, av_pos, -1)
+    print("masked softmax output:")
+    print(x_act)
+
+
+def masked_softmax(self, in_tensor, mask_tensor, dim=1):
+    # TODO: just use regular softmax, where you set all the unavailable actions as -inf.
+    def log_sum_exp_trick(x):
+        c = torch.max(x)
+        log_tensor = c + torch.log(torch.sum(torch.exp(x - c)))
+        return torch.exp(torch.sub(x, log_tensor))
+
+    exps = log_sum_exp_trick(in_tensor)
+    # exps = torch.nan_to_num(exps)
+    masked_exps = torch.mul(exps, mask_tensor)
+    masked_sum = masked_exps.sum(dim, keepdim=True)
+    # masked_sums = torch.nan_to_num(masked_sums)
+    # Avoid division by 0. here.
+    # masked_sums = torch.max(torch.tensor([masked_sums, 1.e-7]))
+    print(f"masked_sum: {masked_sum}")
+    # print(f"Gradient: {masked_sums.grad}")
+    out_tensor = torch.div(masked_exps, masked_sum)
+    if out_tensor.isnan().any() or out_tensor.isinf().any():
+        print("found Nan's in probs tensor. Exiting...")
+        print(f"mask: {mask_tensor}\n")
+        print(f"in_tensor: {in_tensor}\n")
+        print(f"exps: {exps}\n")
+        print(f"masked_sum: {masked_sum}\n")
+        print(f"out_tensor: {out_tensor}")
+        # sys.exit()
+        # raise Exception("Exiting masked softmax")
+    return out_tensor
+
+
+def masked_softmax_alt(self, in_tensor, mask_tensor, dim=1):
+    exps = torch.exp(in_tensor)
+    exps = torch.nan_to_num(exps)
+    masked_exps = torch.mul(exps, mask_tensor)
+    masked_sums = masked_exps.sum(dim, keepdim=True)
+    out_tensor = torch.div(masked_exps, masked_sums)
+    # if out_tensor.isnan().any():
+    print("found Nan's in probs tensor. Exiting...")
+    print(f"mask: {mask_tensor}\n")
+    print(f"in_tensor: {in_tensor}\n")
+    print(f"exps: {exps}\n")
+    print(f"masked_sums: {masked_sums}\n")
+    print(f"out_tensor: {out_tensor}")
+    # sys.exit()
+    # raise Exception("Exiting masked softmax")
+    return out_tensor
