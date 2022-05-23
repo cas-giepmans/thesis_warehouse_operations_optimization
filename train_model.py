@@ -3,10 +3,12 @@ import random
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 from policy_net_AC_pytorch import PolicyValueNet as trainNet
+import torch
 # from torchsummary import summary
 from Warehouse import Warehouse as wh  # Sim replacement
 import numpy as np
 from datetime import date, datetime
+import copy
 
 
 class TrainGameModel():
@@ -43,6 +45,10 @@ class TrainGameModel():
                                    "fcr_policy",
                                    "rfc_policy",
                                    "crf_policy"]
+        self.baselines = {}
+
+    def RunTraining(self, train_episodes, scenario="infeed", baselines=["random", "greedy"]):
+        """
 
     def RunTraining(self, train_episodes, scenario="infeed"):
 
@@ -54,6 +60,15 @@ class TrainGameModel():
         if self.reward_type not in self.all_reward_types:
             raise ValueError(f"Reward type {self.reward_type} is not a valid reward type!")
 
+        if baselines is not None:
+            for benchmark in baselines:
+                if benchmark not in self.benchmark_policies:
+                    raise ValueError(f"There is no benchmark policy named {benchmark}.")
+
+            if scenario != "infeed" and baselines != ["random"]:
+                raise RuntimeError(
+                    "Can only run infeed-only simulations when using benchmarks other than random!")
+
         self.startTime = datetime.now()
         all_episode_times = []
         all_episode_rewards = []
@@ -61,9 +76,16 @@ class TrainGameModel():
         last_access_densities = []
         dims = self.wh_sim.dims
 
+        # Run benchmarks to establish baselines that are included in the training performance graph.
+        print(f"Running the following benchmarks: {baselines}\n\n")
+        for bench_pol in baselines:
+            print(f"Running {bench_pol} benchmark...")
+            self.baselines[bench_pol] = self.RunBenchmark(100, scenario, bench_pol, False)
+            print(f"Finished. Average makespan: {round(self.baselines[bench_pol], 2)} seconds.")
+
         # Specify the exploration strategy here.
         init_eps = 1.0
-        fin_eps = 0.05
+        fin_eps = 0.04
         epsilon = 1.0
         eps_trajectory = [0.1, 0.5, 1.0]
 
@@ -210,8 +232,8 @@ class TrainGameModel():
             access_densities = self.wh_sim.GetShelfAccessDensities(normalized=False, print_it=False)
 
             # If the last 20 episodes are taking place, save order regs and access densities.
-            if i_episode >= train_episodes - 20:
-                last_order_registers.append(self.wh_sim.order_system.order_register)
+            if i_episode >= train_episodes - 100:
+                last_order_registers.append(copy.deepcopy(self.wh_sim.order_system.order_register))
                 last_access_densities.append(access_densities)
 
             # Print episode training meta info.
@@ -372,18 +394,11 @@ class TrainGameModel():
             all_order_registers.append(self.wh_sim.order_system.order_register)
             all_access_densities.append(access_densities)
 
-            # Print the order register for inspection.
-
-            # print("Start time matrix:")
-            # self.wh_sim.PrintStartTimeMatrix()
-            # print("Finish time matrix:")
-            # self.wh_sim.PrintFinishTimeMatrix()
-
             # Print iteration meta info.
-            print(f"Finished it. {iter_i + 1}/{n_iterations}.")
-            print(f"Cumulative order fulfillment time: {-round(self.episode_reward, 2)}\n")
-            print(f"Simulation time: {self.wh_sim.sim_time}")
-            print(f"Max busy time: {max_busy_till}")
+            # print(f"Finished it. {iter_i + 1}/{n_iterations}.")
+            # print(f"Cumulative order fulfillment time: {-round(self.episode_reward, 2)}\n")
+            # print(f"Simulation time: {self.wh_sim.sim_time}")
+            # print(f"Max busy time: {max_busy_till}")
             # print(f"""Episode time: {self.wh_sim.sim_time}
             #           \rMin. episode time so far: {min(all_episode_times)}
             #           \rEpisode reward sum: {self.episode_reward}
@@ -394,21 +409,25 @@ class TrainGameModel():
             #           \r""")
 
         # For the stochastic benchmarks, also output an average time.
-        if benchmark_policy == ("random" or "eps_greedy"):
+        if benchmark_policy in ["random", "greedy", "eps_greedy"]:
             avg_cumul_time = -round(sum(all_episode_rewards) / len(all_episode_rewards), 2)
-            print(f"Average cumulative order fulfillment time: {avg_cumul_time}\n")
+            # print(f"Average summed reward: {avg_cumul_time}\n")
 
         self.endTime = datetime.now()
         t_seconds = (self.endTime - self.startTime).total_seconds()
         print(
             f"Time taken: {t_seconds}s. Episodes/second: {round(n_iterations / t_seconds, 2)}\n\n")
 
-        self.SaveExperimentResults(n_iterations,
-                                   all_episode_rewards,
-                                   last_order_registers=all_order_registers,
-                                   last_access_densities=all_access_densities,
-                                   exp_name=benchmark_policy,
-                                   save_plots=True)
+        if save_results is True:
+            self.SaveExperimentResults(n_iterations,
+                                       all_episode_times,
+                                       last_order_registers=all_order_registers,
+                                       last_access_densities=all_access_densities,
+                                       exp_name=benchmark_policy,
+                                       save_plots=True)
+        else:
+            # Return the average makespan
+            return sum(all_episode_times)/len(all_episode_times)
 
     def SaveBestModel(self):
         # Determine whether to save as a new model based on the principle of least total time consumption
@@ -519,38 +538,59 @@ class TrainGameModel():
         plt.show()
 
     def DrawResults(self, all_episode_rewards, exp_name=None, save_fig=True):
-        # Drawing
-        print("DrawResults")
+        """Draws the progression of the makespan over the course of the training/benchmark, as well
+           as the progression of the loss values."""
+        print("Drawing plots...")
+
+        n = len(self.baselines.keys()) + 1
+        color = iter(plt.cm.rainbow(np.linspace(0, 1, n)))
 
         plt.figure()
         if exp_name is not None:
             plt.title("Storage performance for " + exp_name)
         else:
             plt.title("Storage performance AC network")
+            for bench_pol in self.baselines.keys():
+                plt.hlines(self.baselines[bench_pol], 0, len(
+                    all_episode_rewards), label=bench_pol, color=next(color))
         plt.xlabel("Nr. of training episodes")
         plt.ylabel("Simulation time/makespan")
         all_episode_rewards = [reward for reward in all_episode_rewards]
-        plt.plot(all_episode_rewards, color="g")
+        # y_min = int(min([min(all_episode_rewards), min(self.baselines.values())]) / 1.1)
+        # y_max = int(max([max(all_episode_rewards), max(self.baselines.values())]) * 1.1)
+        plt.ylim(1 * self.wh_sim.num_locs, 5 * self.wh_sim.num_locs)
+        plt.plot(all_episode_rewards, color=next(color),
+                 label="AC network" if exp_name is None else exp_name)
+        plt.legend(loc="best")
         if save_fig:
             plt.savefig("performance trajectory.jpg")
 
         # mean_list = [np.mean(all_episode_rewards)] * len(all_episode_rewards)
         if exp_name is None:
             plt.figure()
-            plt.title("Training loss (limited at 50 and -50) AC network")
-            loss_list = self.neural_network.getLossValue()
-            for i in range(len(loss_list)):
-                if loss_list[i] >= 50:
-                    loss_list[i] = 50
-                elif loss_list[i] <= -50:
-                    loss_list[i] = -50
+            plt.title("Actor losses")
+            plt.grid(True)
+            loss_list = self.neural_network.getActorLosses()
 
             plt.plot(loss_list)
 
             zero_list = [0] * len(all_episode_rewards)
             plt.plot(zero_list, linestyle='--', color="k")
             if save_fig:
-                plt.savefig("training loss trajectory.jpg")
+                plt.savefig("actor loss trajectory.jpg")
+            plt.show()
+
+            plt.figure()
+            plt.title("Critic losses")
+            plt.grid(True)
+            loss_list = self.neural_network.getCriticLosses()
+
+            plt.plot(loss_list)
+
+            zero_list = [0] * len(all_episode_rewards)
+            plt.plot(zero_list, linestyle='--', color="k")
+            if save_fig:
+                plt.savefig("critic loss trajectory.jpg")
         else:
             pass
         plt.show()
@@ -572,10 +612,10 @@ class TrainGameModel():
                 order_matrix[r, f, c] = order_id
 
             order_matrix = np.reshape(order_matrix, (dims[0] * dims[1], dims[2]))
-            mean_order_matrix += order_matrix
+            mean_order_matrix = mean_order_matrix + order_matrix
 
         mean_order_matrix = mean_order_matrix / nr_regs
-        return mean_order_matrix.astype(int)
+        return mean_order_matrix.round(1)
 
     def CalcMeanAccessDensity(self, last_access_densities):
         """Calculates the mean shelf access density."""
@@ -593,14 +633,14 @@ class TrainGameModel():
         mean_access_density_matrix = mean_access_density_matrix / nr_mats
         return mean_access_density_matrix.round(2)
 
-    # TODO: Finish method for saving experiment results and metadata.
     def SaveExperimentResults(self, nr_of_episodes,
                               all_episode_rewards,
                               last_order_registers=None,
                               last_access_densities=None,
                               exp_name=None,
                               save_plots=True):
-        """Method for saving the parameters and results of an experiment to a folder."""
+        """This method should be customized by anyone using it, in order to save experiment
+        results in the right folder."""
         # Navigate to the experiment folder, create the folder for this run.
         # Go up two levels to the 'Thesis' folder.
         original_dir = os.getcwd()
@@ -619,7 +659,7 @@ class TrainGameModel():
 
         # Figure out how many experiments were stored before.
         nr_files = len(os.listdir())
-        # fin_time = f"{datetime.now().hour}.{datetime.now().minute}.{datetime.now().second}"
+
         # Set the experiment's folder's name.
         if exp_name is not None:
             ex_dir = "Benchmark " + str(nr_files + 1) + f" - {exp_name}"
@@ -646,16 +686,23 @@ class TrainGameModel():
             f.write(f"Start: {self.startTime}. Finish: {self.endTime}. Run time: {run_time}\n\n")
             f.write(f"Dimensions: {self.wh_sim.dims}\n")
             f.write(f"Episode length: {self.wh_sim.episode_length}\n")
+            f.write(f"V_vt: {self.wh_sim.v_vt}")
+            f.write(f"V_sh: {self.wh_sim.v_sh}")
             f.write(f"Number of historical RTMs: {self.wh_sim.num_historical_rtms}\n")
             f.write(f"Number of episodes: {nr_of_episodes}\n")
             f.write(f"Learning rate: {self.lr_init}\n")
             f.write(f"Learning rate decay: {self.lr_decay}, every {self.change_count} episodes\n\n")
+            f.write(f"Discount factor: {self.discount_factor}")
 
             f.write(f"Reward type: {self.reward_type}\n")
 
             f.write(f"Average episode reward sum: {avg_episode_reward}\n")
             f.write(f"Best episode: {min_episode_number}\n")
-            f.write(f"Best episode time: {round(min_episode_reward, 2)} seconds\n")
+            f.write(f"Best episode time: {round(min_episode_reward, 2)} seconds\n\n")
+
+            f.write("Average makespans for benchmark policies:")
+            for bench_pol in self.baselines.keys():
+                f.write(f"{bench_pol}: {round(self.baselines[bench_pol], 2)} seconds\n")
             # f.write(f"")
             # f.write(f"")
         f.close()
@@ -669,14 +716,21 @@ class TrainGameModel():
             pass
 
         if last_order_registers is not None:
-            mean_order_matrix = self.CalcMeanOrderMatrix(last_order_registers)
-            self.DrawAccessOrder(all_episode_rewards, mean_order_matrix,
-                                 exp_name=exp_name, save_fig=save_plots)
-        if last_access_densities is not None:
+            if exp_name in ('random', 'eps_greedy') or exp_name is None:
+                mean_order_matrix = self.CalcMeanOrderMatrix(last_order_registers)
+                self.DrawAccessOrder(all_episode_rewards, mean_order_matrix,
+                                     exp_name=exp_name if exp_name is not None else "AC net",
+                                     save_fig=save_plots)
+            # Save a separate one as well for demonstration purposes.
+            order_matrix = self.CalcMeanOrderMatrix([last_order_registers[-1]])
+            self.DrawAccessOrder(all_episode_rewards, order_matrix,
+                                 exp_name=str(exp_name if exp_name is not None else "AC net"
+                                              + " (last episode)"),
+                                 save_fig=save_plots)
+        if last_access_densities is not None and self.wh_sim.episode_length > self.wh_sim.num_locs:
             mean_access_density_matrix = self.CalcMeanAccessDensity(last_access_densities)
             self.DrawAccessDensity(mean_access_density_matrix,
                                    exp_name=exp_name, save_fig=save_plots)
-        # TODO: make it so you can choose to save the figures or not (less clutter in storage).
 
         # Return to the original directory in case we're executing multiple benchmarks in sequence.
         os.chdir(original_dir)

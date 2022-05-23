@@ -72,6 +72,9 @@ class Warehouse():
         self.prev_action_time = 0.0
         # self.floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
         # self.column_travel_time = 1.8 / 1  # 1.8m col width, 1m/s shuttle speed
+        self.v_vt = vt_speed
+        self.v_sh = sh_speed
+
         self.floor_travel_time = 1.2 / 1.0 if vt_speed is None else 1.2 / vt_speed
         self.column_travel_time = 1.2 / 1.0 if sh_speed is None else 1.2 / sh_speed
 
