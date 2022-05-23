@@ -460,7 +460,7 @@ class TrainGameModel():
             # Append the iteration's time to the list of all times.
             all_episode_times.append(self.wh_sim.sim_time)
             all_episode_rewards.append(self.episode_reward)
-            all_order_registers.append(self.wh_sim.order_system.order_register)
+            all_order_registers.append(copy.deepcopy(self.wh_sim.order_system.order_register))
             all_access_densities.append(access_densities)
 
             # Print iteration meta info.
