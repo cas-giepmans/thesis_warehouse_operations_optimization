@@ -683,62 +683,47 @@ class TrainGameModel():
 
 
 def main():
-    # x_dim = 8  # (column-1)
-    # y_dim = 6 * 2  # row * 2
-    num_rows = 2
-    num_floors = 6
-    num_cols = 6
-    episode_length = 72
-    num_hist_rtms = 5
-    num_hist_occs = 0  # Currently not in use!
-    vt_speed = 30.0
-    sh_speed = 1.0
-    percentage_filled = 0.0
-    wh_sim = wh(num_rows,
-                num_floors,
-                num_cols,
-                episode_length,
-                num_hist_rtms,
-                num_hist_occs,
-                vt_speed,
-                sh_speed,
-                percentage_filled)
-    scenario = "infeed"
-
-    # Create baselines: average makespans for several benchmarks.
-    # random_baseline = train_plant_model.RunBenchmark(
-    #     100, scenario=scenario, benchmark_policy='random', save_results=False)
-    # greedy_baseline = train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='greedy')
-
-    train_episodes = 3600  # This value exceeding 5000 is not recommended
-    # learning_rate = 1.78e-4
-    learning_rate = 1.78e-4
-    learning_rate_decay_factor = 0.8
-    learning_rate_decay_interval = 360
-    reward_discount_factor = 0.86
-    reward_type = "makespan_half_spectrum"
-    train_plant_model = TrainGameModel(wh_sim,
-                                       lr=learning_rate,
-                                       lr_decay=learning_rate_decay_factor,
-                                       lr_decay_interval=learning_rate_decay_interval,
-                                       discount_factor=reward_discount_factor,
-                                       reward_type=reward_type)
     # Train the network; regular operation.
-    train_plant_model.RunTraining(train_episodes, scenario)
+    baselines = ["random", "greedy", "crf_policy"]
+    architectures = [(2, 4, 4), (2, 6, 6), (2, 10, 6)]
+    opt_speeds = [12., 30., 90.]
+    gammas = [0.8, 0.86, 0.91]
+    alphas = [4.e-4, 1.78e-4, 1.07e-4]
+    alpha_deltas = [160, 360, 600]
+    alpha_decay = 0.8
+    num_eps = [1600, 3600, 6000]
+    # num_eps = [10, 10, 10]
 
-    # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
-    # locally! See SaveExperimentResults()
-    # TODO: change col_by_col to rfc or something
-    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='random')
-    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='greedy')
-    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='eps_greedy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rcf_policy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='cfr_policy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='frc_policy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='fcr_policy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
-    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
-    # sys.exit("training end")
+    experiment_settings = zip(
+        architectures,
+        opt_speeds,
+        gammas,
+        alphas,
+        alpha_deltas,
+        num_eps)
+
+    speed_scalars = [1., 0.5, 0.25]
+
+    for (dims, v_opt, gamma, alpha, alpha_delta, num_eps) in experiment_settings:
+        for scale in speed_scalars:
+            wh_sim = wh(dims[0],
+                        dims[1],
+                        dims[2],
+                        dims[0] * dims[1] * dims[2],
+                        5,
+                        0,
+                        v_opt * scale,
+                        1.,
+                        0.0)
+
+            model = TrainGameModel(wh_sim,
+                                   alpha,
+                                   alpha_decay,
+                                   alpha_delta,
+                                   gamma,
+                                   "makespan_full_spectrum")
+
+            model.RunTraining(num_eps, "infeed", baselines)
 
 
 if __name__ == '__main__':

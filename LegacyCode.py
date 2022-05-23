@@ -365,3 +365,61 @@ def GetNextOrder(self, current_time, free_and_occ, init_fill_perc=0.5, prioritiz
 
     # Return order ID, order.
     return next_order_id, self.order_register[next_order_id]
+
+
+"""_____________________________________train_model methods._____________________________________"""
+
+
+def main():
+    # x_dim = 8  # (column-1)
+    # y_dim = 6 * 2  # row * 2
+    torch.autograd.set_detect_anomaly(False)
+    # num_rows = 2
+    # num_floors = 6
+    # num_cols = 6
+    # episode_length = 72
+    # num_hist_rtms = 5
+    # num_hist_occs = 0  # Currently not in use!
+    # vt_speed = 30.0
+    # sh_speed = 1.0
+    # percentage_filled = 0.0
+    # wh_sim = wh(num_rows,
+    #             num_floors,
+    #             num_cols,
+    #             episode_length,
+    #             num_hist_rtms,
+    #             num_hist_occs,
+    #             vt_speed,
+    #             sh_speed,
+    #             percentage_filled)
+    # scenario = "infeed"
+
+    # train_episodes = 10  # This value exceeding 5000 is not recommended
+    # # learning_rate = 1.78e-4
+    # learning_rate = 1.78e-4
+    # learning_rate_decay_factor = 0.8
+    # learning_rate_decay_interval = 360
+    # reward_discount_factor = 0.86
+    # reward_type = "makespan_half_spectrum"
+    # train_plant_model = TrainGameModel(wh_sim,
+    #                                    lr=learning_rate,
+    #                                    lr_decay=learning_rate_decay_factor,
+    #                                    lr_decay_interval=learning_rate_decay_interval,
+    #                                    discount_factor=reward_discount_factor,
+    #                                    reward_type=reward_type)
+    # Train the network; regular operation.
+    # train_plant_model.RunTraining(train_episodes, scenario, baselines)
+
+    # Benchmarks: Can run multiple in order. Note: be aware of the fact that plots are saved
+    # locally! See SaveExperimentResults()
+    # TODO: change col_by_col to rfc or something
+    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='random')
+    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='greedy')
+    # train_plant_model.RunBenchmark(100, scenario=scenario, benchmark_policy='eps_greedy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rcf_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='cfr_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='frc_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='fcr_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='rfc_policy')
+    # train_plant_model.RunBenchmark(1, scenario=scenario, benchmark_policy='crf_policy')
+    # sys.exit("training end")
