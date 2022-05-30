@@ -35,7 +35,7 @@ class OrderSystem():
         self.order_register.clear()
         self.order_count = 0
 
-    def GenerateNewOrder(self, current_time, order_type, free_and_occ, item_type=1):
+    def GenerateNewOrder(self, current_time, order_type, free_and_occ, product_type=1):
 
         # Create preliminary order_id for potential troubleshooting.
         order_id = self.order_count + 1
@@ -63,7 +63,7 @@ class OrderSystem():
 
         # Create the order.
         order = {"order_type": order_type,
-                 "item_type": item_type,
+                 "product_type": product_type,
                  "time_created": current_time,
                  "in_queue": False,
                  "time_in_queue": None,
@@ -78,7 +78,7 @@ class OrderSystem():
         self.QueueOrder(order_id)
 
         # Finish.
-        # print(f"Order {order_id} ({order_type}, item type {item_type}) generated and queued.")
+        # print(f"Order {order_id} ({order_type}, item type {product_type}) generated and queued.")
 
     def QueueOrder(self, order_id):
         """Queue an order that has just been generated."""
@@ -206,10 +206,10 @@ def main():
     sim_time = 0.0
     test_os = OrderSystem()
     sim_time += 3
-    test_os.GenerateNewOrder(current_time=sim_time, order_type="infeed", item_type=1)
+    test_os.GenerateNewOrder(current_time=sim_time, order_type="infeed", product_type=1)
     for i in range(1, 6, 1):
         sim_time += 3
-        test_os.GenerateNewOrder(current_time=sim_time, order_type="infeed", item_type=1)
+        test_os.GenerateNewOrder(current_time=sim_time, order_type="infeed", product_type=1)
     test_os.PrintOrderQueues()
     next_executed_order = test_os.ExecuteNextOrder(current_time=sim_time)
     print("\n")

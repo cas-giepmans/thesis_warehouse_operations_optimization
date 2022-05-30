@@ -189,12 +189,12 @@ class TrainGameModel():
                     self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
                                                               order_type="random",
                                                               free_and_occ=free_and_occ,
-                                                              item_type=1)
+                                                              product_type=1)
                 else:  # If we're doing only infeed or only outfeed.
                     self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
                                                               order_type=scenario,
                                                               free_and_occ=free_and_occ,
-                                                              item_type=1)
+                                                              product_type=1)
 
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
@@ -385,12 +385,12 @@ class TrainGameModel():
                     self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
                                                               order_type="random",
                                                               free_and_occ=free_and_occ,
-                                                              item_type=1)
+                                                              product_type=1)
                 else:  # If we're doing only infeed or only outfeed.
                     self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
                                                               order_type=scenario,
                                                               free_and_occ=free_and_occ,
-                                                              item_type=1)
+                                                              product_type=1)
 
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
@@ -755,13 +755,13 @@ class TrainGameModel():
             f.write(f"Start: {self.startTime}. Finish: {self.endTime}. Run time: {run_time}\n\n")
             f.write(f"Dimensions: {self.wh_sim.dims}\n")
             f.write(f"Episode length: {self.wh_sim.episode_length}\n")
-            f.write(f"V_vt: {self.wh_sim.v_vt}")
-            f.write(f"V_sh: {self.wh_sim.v_sh}")
+            f.write(f"V_vt: {self.wh_sim.v_vt}\n")
+            f.write(f"V_sh: {self.wh_sim.v_sh}\n")
             f.write(f"Number of historical RTMs: {self.wh_sim.num_historical_rtms}\n")
             f.write(f"Number of episodes: {nr_of_episodes}\n")
             f.write(f"Learning rate: {self.lr_init}\n")
             f.write(f"Learning rate decay: {self.lr_decay}, every {self.change_count} episodes\n\n")
-            f.write(f"Discount factor: {self.discount_factor}")
+            f.write(f"Discount factor: {self.discount_factor}\n")
 
             f.write(f"Reward type: {self.reward_type}\n")
 
@@ -769,7 +769,7 @@ class TrainGameModel():
             f.write(f"Best episode: {min_episode_number}\n")
             f.write(f"Best episode time: {round(min_episode_reward, 2)} seconds\n\n")
 
-            f.write("Average makespans for benchmark policies:")
+            f.write("Average makespans for benchmark policies:\n")
             for bench_pol in self.baselines.keys():
                 f.write(f"{bench_pol}: {round(self.baselines[bench_pol], 2)} seconds\n")
             # f.write(f"")
