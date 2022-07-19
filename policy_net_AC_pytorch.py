@@ -158,7 +158,8 @@ class DeeperValAct_net(nn.Module):
         x_act = F.relu(self.act_conv1(x))
         x_act = x_act.view(-1, self.StateNum * self.posNum)
         x_act = self.act_fc1(x_act)
-        x_act = F.softmax(x_act.where(av_pos, torch.tensor(-float('inf'))))
+        x_act = F.softmax(x_act.where(av_pos, torch.tensor(-float('inf'))), dim=1)
+        # TODO: remove custom softmax and av_pos so you can create a model.summary()
 
         # state value layers
         x_val = F.relu(self.val_conv1(x))

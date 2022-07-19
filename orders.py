@@ -40,10 +40,6 @@ class OrderSystem():
         # Create preliminary order_id for potential troubleshooting.
         order_id = self.order_count + 1
 
-        # Perform some checks.
-        if order_type not in ["infeed", "outfeed", "random"]:
-            raise Exception(f"""The specified order_type {order_type}
-                            for order {order_id} is invalid""")
         # if order_type == "infeed" and free_and_occ[0] == 0:
         #     raise Exception("Can't infeed to a full warehouse!")
         # if order_type == "outfeed" and free_and_occ[1] == 0:

@@ -25,18 +25,41 @@ class Warehouse():
             self,
             num_rows=2,
             num_floors=6,
-            num_cols=8,
+            num_cols=6,
             episode_length=1000,
             num_hist_rtms=2,
             num_hist_occs=2,
             vt_speed=None,
             sh_speed=None,
-            fill_perc=0.5):
+            fill_perc=0.5,
+            product_frequencies=[]):
         """
 
 
-        Return.
+        Parameters
+        ----------
+        num_rows : int, optional
+            DESCRIPTION. The default is 2.
+        num_floors : int, optional
+            DESCRIPTION. The default is 6.
+        num_cols : int, optional
+            DESCRIPTION. The default is 8.
+        episode_length : int, optional
+            DESCRIPTION. The default is 1000.
+        num_hist_rtms : int, optional
+            DESCRIPTION. The default is 2.
+        num_hist_occs : int, optional
+            DESCRIPTION. The default is 2.
+        vt_speed : float, optional
+            DESCRIPTION. The default is None.
+        sh_speed : float, optional
+            DESCRIPTION. The default is None.
+        fill_perc : float, optional
+            DESCRIPTION. The default is 0.5.
+        product_frequencies : list, optional
+            DESCRIPTION. The default is [].
 
+        Returns
         -------
         None.
 
@@ -123,6 +146,17 @@ class Warehouse():
 
                     i += 1
 
+        # Variables related to multiple product types
+        self.shelf_contents = np.zeros(self.dims, dtype=int)  # 0 means empty, 1 means type 1 etc.
+        # Check to see if they sum up to 1.
+        sum_frequencies = sum(product_frequencies)
+        if sum_frequencies != 1.0:
+            product_frequencies = [frequency /
+                                   sum_frequencies for frequency in product_frequencies]
+        self.product_frequencies = dict(list(enumerate(product_frequencies, start=1)))
+        self.product_counts = dict(list(enumerate([0 for i in product_frequencies], start=1)))
+        self.num_product_types = len(product_frequencies)
+
         # Variables used in benchmarking
         # TODO: this can be done neater, with recursion. Specify policy type, adjust recursion order.
         # Order in which shelves are accessed for col_by_col policy.
@@ -170,7 +204,7 @@ class Warehouse():
                 for f in range(self.num_floors):
                     self.crf_sequence.append(self.shelf_id[r, f, c])
 
-    def ResetState(self, random_fill_percentage=None) -> list:
+    def ResetState(self, random_fill_percentage=None, dfg=[1, 1, 1]) -> list:
         """
         Resets the warehouse instance's variables, the order system's instance and returns a fresh
         state array. The state array's availability matrix (bottom matrix) specifies occupied
@@ -189,6 +223,9 @@ class Warehouse():
 
         """
         self.shelf_occupied = np.zeros(self.dims, dtype=bool)
+        self.shelf_contents = np.zeros(self.dims, dtype=int)
+        for key in self.product_counts.keys():
+            self.product_counts[key] = 0
 
         # If requested, fill the shelves randomly up to a certain percentage.
         if random_fill_percentage is not None:
@@ -219,12 +256,12 @@ class Warehouse():
 
         self.order_system.Reset()
 
-        fresh_wh_state = self.BuildState()
+        fresh_wh_state = self.BuildState(dfg=dfg)
 
         return fresh_wh_state
 
     # CHECK: don't you need occupancy history?
-    def BuildState(self, infeed=True):
+    def BuildState(self, infeed=True, product_type=1, dfg=[1, 1, 1]):
         """Build the new warehouse state, consisting of n historical RTMs, the
         current RTM and the binary matrix representing pickable locations,
         either for storage or for retrieval ops."""
@@ -243,7 +280,105 @@ class Warehouse():
         else:
             wh_state.append(np.reshape(self.shelf_occupied,
                             (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+        # Multi-product-related matrices.
+        # One availability matrix for each product type.
+
+        freq_matrix = np.zeros(self.dims)
+        for p_type, p_freq in enumerate(self.product_frequencies, 1):
+            av_matrix = np.where(self.shelf_contents == p_type, 1, 0)
+            # if p_type == product_type:
+            #     chosen_product_matrix = av_matrix
+
+            av_matrix = np.reshape(av_matrix,
+                                   (self.dims[0] * self.dims[1], self.dims[2])).tolist()
+
+            # if infeed:
+            #     av_matrix = np.reshape(av_matrix,
+            #                            (self.dims[0] * self.dims[1], self.dims[2])).tolist()
+            # else:
+            #     av_matrix = np.reshape(~av_matrix,
+            #                            (self.dims[0] * self.dims[1], self.dims[2])).tolist()
+            if dfg[0] == 1:
+                wh_state.append(av_matrix)
+
+            # Fill the frequency matrix with each product's respective frequency.
+            freq_matrix = np.where(self.shelf_contents == p_type, p_freq, freq_matrix)
+
+        chosen_product_matrix = np.where(self.shelf_contents == product_type, 1, 0)
+        if dfg[0] == 1:
+            wh_state.append(np.reshape(chosen_product_matrix,
+                                       (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+        if dfg[1] == 1:
+            wh_state.append(np.reshape(chosen_product_matrix * self.product_frequencies[product_type],
+                                       (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+
+        # if infeed:
+        #     wh_state.append(np.reshape(chosen_product_matrix,
+        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+        #     wh_state.append(np.reshape(chosen_product_matrix * self.product_frequencies[product_type],
+        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+        # else:
+        #     wh_state.append(np.reshape(~chosen_product_matrix,
+        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+        #     wh_state.append(np.reshape(~chosen_product_matrix * self.product_frequencies[product_type],
+        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+        if dfg[2] == 1:
+            wh_state.append(np.reshape(freq_matrix,
+                                       (self.dims[0] * self.dims[1], self.dims[2])).tolist())
+        # for matrix in wh_state:
+        #     print(type(matrix[0][0]))
+        # print(wh_state)
         return wh_state
+
+    def GenerateNewOrder(self, scenario, free_and_occ):
+        # Can only generate outfeed order for specific type if it's present in warehouse.
+        unavailable_types = []
+        if scenario == "infeed":
+            pass
+        else:
+            for pair in self.product_counts.items():
+                if pair[1] == 0:
+                    unavailable_types.append(pair[0])
+        # print(f"unavailable types: {unavailable_types}")
+
+        if scenario == "both":
+            infeed_prob = 0.0
+
+            cur_f = round(free_and_occ[1] / self.num_locs, 2)  # Current fullness
+            des_f = self.init_fill_perc  # Desired fullness
+
+            # Calculate the probability for generating an infeed order.
+            if cur_f == des_f:
+                infeed_prob = 0.5
+            elif cur_f > des_f:
+                infeed_prob = 1 - (0.5 / (1.0 - des_f) * cur_f - (0.5 / (1.0 - des_f) - 1))
+            elif cur_f < des_f:
+                infeed_prob = 1 - 0.5 / des_f * cur_f
+
+            # print(f"infeed prob: {infeed_prob}")
+            # print(f"occ: {free_and_occ[1]}")
+            # print(f"num locs: {self.num_locs}")
+            # print(f"cur_f: {cur_f}")
+            # print(f"des_f: {des_f}")
+            order_type = "infeed" if self.rng.uniform() < infeed_prob else "outfeed"
+        else:
+            if scenario == "infeed":
+                order_type = "infeed"
+            else:
+                order_type = "outfeed"
+
+        # Draw a product type based on given probabilities and availability.
+        if order_type == "infeed":
+            product_type = self.DrawProductType()
+        else:
+            product_type = self.DrawProductType(unavailable_types)
+
+        # Finally, generate a new order.
+        self.order_system.GenerateNewOrder(self.sim_time, order_type, free_and_occ, product_type)
+
+    def GetNextOrder(self, free_and_occ):
+        """"Pass-through for the method in the order system of the same name."""
+        return self.order_system.GetNextOrder(self.sim_time, free_and_occ)
 
     def CalcShelfAccessTime(self, shelf_id, infeed=True):
         """Calculates the time needed for accessing a shelf, either for infeed or outfeed."""
@@ -432,7 +567,7 @@ class Warehouse():
             _, f_target, _ = self.shelf_rfc[to_id]
             return abs(f_origin - f_target) * self.floor_travel_time
 
-    def ProcessAction(self, infeed, selected_shelf_id=None, rfc=None):
+    def ProcessAction(self, infeed, product_type, selected_shelf_id=None, rfc=None):
         """
         Perform an infeed/outfeed action. The returned action_time includes the time needed for
         prepositioning agents. Used to be two functions 'Infeed' and 'Outfeed' but this seemed neater.
@@ -511,9 +646,10 @@ class Warehouse():
                 self.agent_location[agent][self.agent_busy_till[agent]] = 0
 
         self.shelf_occupied[r, f, c] = True if infeed else False
+        self.shelf_contents[r, f, c] = product_type if infeed else 0
 
-        # Calculate the reward:
-        # reward = action_time - self.sim_time
+        # Increase/decrease product count.
+        self.product_counts[product_type] += 1 if infeed else -1
 
         # Determine if this the episode length has been reached.
         self.action_counter += 1
@@ -592,52 +728,59 @@ class Warehouse():
         """Print the correctly oriented occupancy matrix."""
         print(np.flip(self.shelf_occupied, axis=1))
 
-    def GetNextBenchmarkPolicyShelfId(self, bench_pol="random", infeed=True, eps=0.1) -> np.int16:
+    def GetNextBenchmarkPolicyShelfId(self, infeed, bench_pol="random", product_type=1, eps=0.1) -> np.int16:
         """Get the next shelf ID according to a benchmark policy. Possible benchmark policies are
         'random', 'greedy', 'eps_greedy', 'rcf_policy', 'cfr_policy', 'frc_policy' and
         'fcr_policy'. Only meant for benchmarking infeed-only scenarios."""
 
-        if bench_pol == 'random':
-            return self.GetRandomShelfId(infeed=infeed)
-        elif bench_pol == 'greedy':
-            return self.GetGreedyShelfId(infeed=infeed)
-        elif bench_pol == 'eps_greedy':
-            return self.GetEpsGreedyShelfId(infeed=infeed, eps=eps)
-
-        elif bench_pol == 'rcf_policy':
-            return self.rcf_sequence[self.action_counter]
-        elif bench_pol == 'cfr_policy':
-            return self.cfr_sequence[self.action_counter]
-        elif bench_pol == 'frc_policy':
-            return self.frc_sequence[self.action_counter]
-        elif bench_pol == 'fcr_policy':
-            return self.fcr_sequence[self.action_counter]
-        elif bench_pol == 'rfc_policy':
-            return self.rfc_sequence[self.action_counter]
-        elif bench_pol == 'crf_policy':
-            return self.crf_sequence[self.action_counter]
-
-        else:
-            ValueError(f"There is no benchmark policy called '{bench_pol}'.")
-
-    def GetRandomShelfId(self, infeed=True) -> np.int16:
-        """Return a shelf ID randomly picked from the available IDs."""
-        # Pick a random location you can infeed to.
         if infeed:
-            rfc = self.rng.choice(np.argwhere(self.shelf_occupied == 0).tolist(), axis=0)
-        # Pick a random location you can outfeed from.
+            product_type = 0
+
+        # Stochastic policies.
+        if bench_pol == 'random':
+            return self.GetRandomShelfId(product_type=product_type)
+        elif bench_pol == 'greedy':
+            return self.GetGreedyShelfId(product_type=product_type)
+        elif bench_pol == 'eps_greedy':
+            return self.GetEpsGreedyShelfId(eps=eps, product_type=product_type)
         else:
-            rfc = self.rng.choice(np.argwhere(self.shelf_occupied == 1).tolist(), axis=0)
+            # Deterministic (rule-based) policies.
+            if bench_pol == 'rcf_policy':
+                return self.FindNextShelfIdInSequence(self.rcf_sequence, product_type)
+            elif bench_pol == 'cfr_policy':
+                return self.FindNextShelfIdInSequence(self.cfr_sequence, product_type)
+            elif bench_pol == 'frc_policy':
+                return self.FindNextShelfIdInSequence(self.frc_sequence, product_type)
+            elif bench_pol == 'fcr_policy':
+                return self.FindNextShelfIdInSequence(self.fcr_sequence, product_type)
+            elif bench_pol == 'rfc_policy':
+                return self.FindNextShelfIdInSequence(self.rfc_sequence, product_type)
+            elif bench_pol == 'crf_policy':
+                return self.FindNextShelfIdInSequence(self.crf_sequence, product_type)
+            else:
+                ValueError(f"There is no benchmark policy called '{bench_pol}'.")
+
+    def FindNextShelfIdInSequence(self, sequence, product_type=1) -> np.int16:
+        """Find the next available shelf ID using a sequence in the warehouse given the product type
+           (infeed uses product_type=0)."""
+        for shelf_id in sequence:
+            (r, f, c) = self.shelf_rfc[shelf_id]
+            if self.shelf_contents[r, f, c] == product_type:
+                return shelf_id
+            else:
+                continue
+
+    def GetRandomShelfId(self, product_type=1) -> np.int16:
+        """Return random shelf ID that contains a product of the specified type or is empty (0)."""
+        rfc = self.rng.choice(np.argwhere(self.shelf_contents == product_type).tolist(), axis=0)
         return int(self.shelf_id[rfc[0], rfc[1], rfc[2]])
 
-    def GetGreedyShelfId(self, infeed=True) -> np.int16:
-        """Return a shelf ID that has the lowest response time."""
-        candidate_ids = self.GetIds(want_free_ids=infeed)
+    def GetGreedyShelfId(self, product_type=1) -> np.int16:
+        """Return a shelf ID that has the lowest response time, given an infeed/outfeed request."""
+        candidate_ids = self.GetIds(product_type)
 
-        # print(candidate_ids)
         min_rt = float('inf')
         min_rt_shelf_ids = []
-        # shelf_id = None
 
         for c_id in candidate_ids:
             (r, f, c) = self.shelf_rfc[c_id]
@@ -651,27 +794,25 @@ class Warehouse():
                 min_rt_shelf_ids.append(c_id)
         return self.rng.choice(min_rt_shelf_ids)
 
-    def GetEpsGreedyShelfId(self, infeed=True, eps=0.1) -> np.int16:
+    def GetEpsGreedyShelfId(self, eps=0.1, product_type=1) -> np.int16:
         """Return a shelf ID that has the lowest response time with prob. (1-eps), else return a
         random ID."""
-        candidate_ids = self.GetIds(want_free_ids=infeed)
-
-        if np.random.uniform() <= eps:
-            return np.random.choice(candidate_ids)
+        if self.rng.uniform() <= eps:
+            return self.GetRandomShelfId(product_type)
         else:
-            return self.GetGreedyShelfId(infeed)
+            return self.GetGreedyShelfId(product_type)
 
-    def GetIds(self, want_free_ids=True) -> list:
-        """Get the IDs of shelves, occupied or free."""
-        occ_ids = []
-        free_ids = []
+    def GetIds(self, product_type=1) -> list:
+        """Get the IDs of shelves, occupied or free, given a product type (0 for infeed)."""
+        ids = []
+
         for _id in range(self.num_locs):
             (r, f, c) = self.shelf_rfc[_id]
-            if self.shelf_occupied[r, f, c]:
-                occ_ids.append(np.int16(_id))
+            if self.shelf_contents[r, f, c] == product_type:
+                ids.append(np.int16(_id))
             else:
-                free_ids.append(np.int16(_id))
-        return free_ids if want_free_ids else occ_ids
+                continue
+        return ids
 
     def SetRandomOccupancy(self, fill_percentage=0.5):
         """Randomly sets a percentage of shelves to either occupied or not."""
@@ -681,6 +822,11 @@ class Warehouse():
         for shelf_id in init_fills:
             r, f, c = self.shelf_rfc[shelf_id]
             self.shelf_occupied[r, f, c] = True
+
+            # Randomly assign a product type to this shelf.
+            product_type = self.DrawProductType()
+            self.shelf_contents[r, f, c] = product_type
+            self.product_counts[product_type] += 1
 
     def GetShelfAccessDensities(self, normalized=True, print_it=False):
         """Calculate and return the access density matrix for an episode."""
@@ -721,6 +867,134 @@ class Warehouse():
         # Return as a single numpy.ndarray object for convenience.
         access_densities = np.stack([infeed_density, outfeed_density], axis=0)
         return access_densities
+
+    # TODO: calculate the ... time in the warehouse for each shelf, each product
+
+    def GetMostCommonProductTypes(self, normalize=True, print_it=False):
+        """For each shelf, for each product type, count how many orders involved that shelf. Then
+           return the most occuring product type for each shelf."""
+        bad_orders = 0
+        most_common_type_matrix = np.zeros(self.dims, dtype=int)
+
+        # Create a 2D counter
+        type_counter = {}
+        for shelf in range(self.num_locs):
+            type_counter[shelf] = {}
+            for product_type in range(1, self.num_product_types + 1, 1):
+                type_counter[shelf][product_type] = 0.0
+
+        # Iterate over orders, count the product type occurences.
+        for order in self.order_system.order_register.values():
+            if order["time_finish"] is None:
+                # This order never finished for some reason.
+                bad_orders += 1
+            else:
+                type_counter[order["shelf_id"]][order["product_type"]] += 1.0
+
+        # Iterate over shelves, normalize (divide count by type frequency).
+        if normalize:
+            for shelf_id in range(self.num_locs):
+                for product_type in range(1, self.num_product_types + 1, 1):
+                    type_counter[shelf_id][product_type] /= self.product_frequencies[product_type]
+
+        # Find the most common product type for each shelf.
+        for shelf_id in range(self.num_locs):
+            (r, f, c) = self.shelf_rfc[shelf_id]
+            most_common_type = 1  # Initialize to 1 in order to avoid key error.
+            for product_type in type_counter[shelf_id].items():
+                if product_type[1] > type_counter[shelf_id][most_common_type]:
+                    most_common_type = product_type[0]
+                else:
+                    continue
+            most_common_type_matrix[r, f, c] = most_common_type
+
+        if bad_orders != 0:
+            print(f"There were {bad_orders} bad orders that didn't finish.")
+        else:
+            # print("There were no bad orders that didn't finish.")
+            pass
+
+        if print_it:
+            print("Most occuring product for each shelf type:")
+            print(np.flip(most_common_type_matrix, axis=1))
+
+        return most_common_type_matrix
+
+    def GetProductTypeDoS(self, print_it=False):
+        """For each shelf, get a list of counters that denote how often each
+           product type was stored there."""
+        # Counter, just in case.
+        bad_orders = 0
+        # Counter to keep track of number of orders per product type per shelf.
+        counter_matrix = np.zeros(
+            (self.dims[0], self.dims[1], self.dims[2], self.num_product_types + 1), dtype=float)
+        # Counter to track cumulative storage time per type per shelf.
+        time_matrix = np.zeros(
+            (self.dims[0], self.dims[1], self.dims[2], self.num_product_types + 1), dtype=float)
+        # List to keep track of when each shelf was last filled, so you can calc storage duration.
+        shelf_drop_off_times = [0.0 for i in range(self.num_locs)]
+
+        # Iterate over orders.
+        for order in self.order_system.order_register.values():
+            if order["time_finish"] is None:
+                # This order never finished for some reason.
+                bad_orders += 1
+            else:
+                # Get the location.
+                r, f, c = self.shelf_rfc[order["shelf_id"]]
+                # Increase the count
+                counter_matrix[r, f, c, order["product_type"]] += 1
+
+                if order["order_type"] == "outfeed":
+                    # If order was outfeed, add duration of stay to total.
+                    time_matrix[r, f, c, order["product_type"]
+                                ] += (order["time_finish"] - shelf_drop_off_times[order["shelf_id"]])
+                    # Start counting for empty-shelf-duration
+                    shelf_drop_off_times[order["shelf_id"]] = order["time_finish"]
+                    counter_matrix[r, f, c, 0] += 2  # 2 because later it gets divided by 2
+                if order["order_type"] == "infeed":
+                    # Increase the empty-shelf-duration.
+                    time_matrix[r, f, c, 0] += (order["time_finish"] -
+                                                shelf_drop_off_times[order["shelf_id"]])
+                    # If order was infeed, set the time at which the product was stored.
+                    shelf_drop_off_times[order["shelf_id"]] = order["time_finish"]
+
+        # Get actual number of products stored there, not number of orders going here.
+        counter_matrix += 0.5
+        counter_matrix /= 2.0
+        # Divide each cumulative duration of stay by the number of products there.
+        time_matrix = np.divide(time_matrix, counter_matrix)
+
+        if print_it:
+            for i in range(self.num_locs):
+                r, f, c = self.shelf_rfc[i]
+                print(f"shelf RFC: {r, f, c}, DoS: {time_matrix[r, f, c, :]}")
+
+        return time_matrix
+
+    def DrawProductType(self, unavailable_types=[]) -> int:
+        """Draw a product type according to predefined probabilities and availability."""
+
+        dict_items = list(zip(*self.product_frequencies.items()))
+
+        types = list(dict_items[0])
+        freqs = list(dict_items[1])
+
+        if unavailable_types:  # boolean interpretation of non-empty list equates to True.
+            # Iterate in reversed order, otherwise you change the indices as you pop from the lists.
+            for _type in reversed(unavailable_types):
+                # print(f"Popping {_type - 1}...")
+                # print(f"Types: {types}")
+                types.pop(_type - 1)  # -1, because type 1 has index 0.
+                freqs.pop(_type - 1)  # same here.
+            # Don't have to renormalize freqs, random.choices does this automatically.
+        else:  # No unavailable product types.
+            # print("nothing unavailable")
+            pass
+
+        # print(f"action nr: {self.action_counter}")
+        product_type = random.choices(types, freqs, k=1)
+        return product_type[0]
 
 
 # def main():
