@@ -12,7 +12,7 @@ from orders import OrderSystem
 
 class Warehouse():
     """
-
+    The warehouse class.
 
     Return.
 
@@ -27,10 +27,10 @@ class Warehouse():
             num_floors=6,
             num_cols=6,
             episode_length=1000,
-            num_hist_rtms=2,
-            num_hist_occs=2,
-            vt_speed=None,
-            sh_speed=None,
+            num_hist_rtms=5,
+            num_hist_occs=0,
+            vt_speed=1.0,
+            sh_speed=1.0,
             fill_perc=0.5,
             product_frequencies=[]):
         """
@@ -39,25 +39,25 @@ class Warehouse():
         Parameters
         ----------
         num_rows : int, optional
-            DESCRIPTION. The default is 2.
+            Number of rows in the warehouse. The default is 2.
         num_floors : int, optional
-            DESCRIPTION. The default is 6.
+            Number of floors in the warehouse. The default is 6.
         num_cols : int, optional
-            DESCRIPTION. The default is 8.
+            Number of columns in the warehouse. The default is 6.
         episode_length : int, optional
-            DESCRIPTION. The default is 1000.
+            The number of orders that are processed before a simulation episode is over. The default is 1000.
         num_hist_rtms : int, optional
-            DESCRIPTION. The default is 2.
+            The number of RTMs from previous simulation steps to include as input for the agent. The default is 5.
         num_hist_occs : int, optional
-            DESCRIPTION. The default is 2.
+            Not in use. Number of previous availability matrices. The default is 0.
         vt_speed : float, optional
-            DESCRIPTION. The default is None.
+            Speed (m/s) of the vertical transporter. The default is 1.0.
         sh_speed : float, optional
-            DESCRIPTION. The default is None.
+            Speed (m/s) of the shuttle (horizontal transporter). The default is 1.0.
         fill_perc : float, optional
-            DESCRIPTION. The default is 0.5.
+            The desired fulness of the warehouse. The default is 0.5.
         product_frequencies : list, optional
-            DESCRIPTION. The default is [].
+            List of the pass-through frequencies for each product. The default is [].
 
         Returns
         -------
@@ -93,11 +93,10 @@ class Warehouse():
         self.num_historical_occs = num_hist_occs
         self.sim_time = 0.0
         self.prev_action_time = 0.0
-        # self.floor_travel_time = 2.0 / 5.0  # 2m floor height, 5m/s vt speed
-        # self.column_travel_time = 1.8 / 1  # 1.8m col width, 1m/s shuttle speed
         self.v_vt = vt_speed
         self.v_sh = sh_speed
 
+        # The physical distance between two adjacent storage locations or floors is 1.2 meters.
         self.floor_travel_time = 1.2 / 1.0 if vt_speed is None else 1.2 / vt_speed
         self.column_travel_time = 1.2 / 1.0 if sh_speed is None else 1.2 / sh_speed
 
@@ -214,6 +213,9 @@ class Warehouse():
         ----------
         random_fill_percentage : float, optional
             If set, the warehouse is randomly filled for the given percentage. The default is None.
+        dfg : list, optional
+            Which extra input matrices to give the agent. These are the AMPT (d), FPM (f) and FPMPT (g).
+            See thesis for more information on these.
 
         Returns
         -------
@@ -260,7 +262,6 @@ class Warehouse():
 
         return fresh_wh_state
 
-    # CHECK: don't you need occupancy history?
     def BuildState(self, infeed=True, product_type=1, dfg=[1, 1, 1]):
         """Build the new warehouse state, consisting of n historical RTMs, the
         current RTM and the binary matrix representing pickable locations,
@@ -286,18 +287,10 @@ class Warehouse():
         freq_matrix = np.zeros(self.dims)
         for p_type, p_freq in enumerate(self.product_frequencies, 1):
             av_matrix = np.where(self.shelf_contents == p_type, 1, 0)
-            # if p_type == product_type:
-            #     chosen_product_matrix = av_matrix
 
             av_matrix = np.reshape(av_matrix,
                                    (self.dims[0] * self.dims[1], self.dims[2])).tolist()
 
-            # if infeed:
-            #     av_matrix = np.reshape(av_matrix,
-            #                            (self.dims[0] * self.dims[1], self.dims[2])).tolist()
-            # else:
-            #     av_matrix = np.reshape(~av_matrix,
-            #                            (self.dims[0] * self.dims[1], self.dims[2])).tolist()
             if dfg[0] == 1:
                 wh_state.append(av_matrix)
 
@@ -305,29 +298,18 @@ class Warehouse():
             freq_matrix = np.where(self.shelf_contents == p_type, p_freq, freq_matrix)
 
         chosen_product_matrix = np.where(self.shelf_contents == product_type, 1, 0)
+
+        # Add the extra input matrices.
         if dfg[0] == 1:
             wh_state.append(np.reshape(chosen_product_matrix,
                                        (self.dims[0] * self.dims[1], self.dims[2])).tolist())
         if dfg[1] == 1:
             wh_state.append(np.reshape(chosen_product_matrix * self.product_frequencies[product_type],
                                        (self.dims[0] * self.dims[1], self.dims[2])).tolist())
-
-        # if infeed:
-        #     wh_state.append(np.reshape(chosen_product_matrix,
-        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
-        #     wh_state.append(np.reshape(chosen_product_matrix * self.product_frequencies[product_type],
-        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
-        # else:
-        #     wh_state.append(np.reshape(~chosen_product_matrix,
-        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
-        #     wh_state.append(np.reshape(~chosen_product_matrix * self.product_frequencies[product_type],
-        #                     (self.dims[0] * self.dims[1], self.dims[2])).tolist())
         if dfg[2] == 1:
             wh_state.append(np.reshape(freq_matrix,
                                        (self.dims[0] * self.dims[1], self.dims[2])).tolist())
-        # for matrix in wh_state:
-        #     print(type(matrix[0][0]))
-        # print(wh_state)
+
         return wh_state
 
     def GenerateNewOrder(self, scenario, free_and_occ):
@@ -355,11 +337,7 @@ class Warehouse():
             elif cur_f < des_f:
                 infeed_prob = 1 - 0.5 / des_f * cur_f
 
-            # print(f"infeed prob: {infeed_prob}")
-            # print(f"occ: {free_and_occ[1]}")
-            # print(f"num locs: {self.num_locs}")
-            # print(f"cur_f: {cur_f}")
-            # print(f"des_f: {des_f}")
+            # Draw the order type randomly according to the fulness.
             order_type = "infeed" if self.rng.uniform() < infeed_prob else "outfeed"
         else:
             if scenario == "infeed":
@@ -406,19 +384,12 @@ class Warehouse():
             busy_till = np.maximum(busy_till, self.sim_time)
 
             # Perform prepositioning, no need to wait for other agents
-            # print(f"agent location: {agent_loc}, agent: {agent}")
             if agent == 'vt':
                 busy_till += self.CalcAgentTravelTime(agent,
                                                       self.shelf_id[0, agent_loc, 0], pth[0], False)
             else:
                 busy_till += self.CalcAgentTravelTime(agent,
                                                       self.shelf_id[0, 0, agent_loc], pth[0], False)
-            # try:
-            #     busy_till += self.CalcAgentTravelTime(agent, self.shelf_id[0, agent_loc, 0], pth[0])
-            # except IndexError:
-            #     print(f"""Sim time: {self.sim_time},\nAgent: {agent},\nbusy_till: {busy_till},
-            #           \rShelf ID: {shelf_id},\nPath_0: {pth[0]},\nPath_1: {pth[1]},\nInfeed: {infeed}.\n""")
-            #     print(self.order_system.order_register[self.action_counter].values())
 
             # Pick-up item and go to required location, the agents who will get the item will wait.
             curr_time = np.maximum(busy_till, curr_time) + self.CalcAgentTravelTime(agent,
@@ -433,7 +404,6 @@ class Warehouse():
         # Return the relative time
         return curr_time - self.sim_time
 
-    # @jit(forceobj=True)
     def CalcRTM(self):
         """
         Important: make sure to update Warehouse.sim_time before you calculate the RTM, and that you
@@ -475,7 +445,6 @@ class Warehouse():
 
     def ReadyTransporters(self, target_shelf_id, infeed=True):
         """
-
         Given the ID of a shelf to be accessed and the type of operation, move
         every involved agent to the required starting location and update their
         busy times and locations accordingly.
@@ -665,25 +634,6 @@ class Warehouse():
     def Get_RTM(self, rfc=None):
         """Return the Response Time Matrix (RTM), or an entry from the RTM."""
         return self.rtm if rfc is None else self.rtm[rfc[0], rfc[1], rfc[2]]
-
-    # TODO: finish this method, change agent location logging (for when they stand still)
-    # def GetActionLocation(self, agent, time):
-    #     """Return the specified agent's location at the specified time. Can be called anytime."""
-    #     if type(agent) is not str or type(time) is not float:
-    #         raise TypeError("Arguments 'agent' and 'time' should be of types str and float!")
-    #     elif agent not in self.agent_location.keys():
-    #         raise ValueError(f"Agent '{agent}' does not exist!")
-
-    #     location = 0.0
-
-    #     try:
-    #         # See if the specified time is
-    #         location = self.agent_location[agent][time]
-    #     except KeyError:
-    #         # There is no location for the agent at that time, so it is travelling between points.
-    #         # Start by looking at the latest entry in the location dictionary, work your way towards
-    #         # the beginning until you find a time that is smaller than the specified time.
-    #     return location
 
     def PrintRTM(self):
         """Print the correctly oriented response time matrix."""
@@ -983,20 +933,17 @@ class Warehouse():
         if unavailable_types:  # boolean interpretation of non-empty list equates to True.
             # Iterate in reversed order, otherwise you change the indices as you pop from the lists.
             for _type in reversed(unavailable_types):
-                # print(f"Popping {_type - 1}...")
-                # print(f"Types: {types}")
                 types.pop(_type - 1)  # -1, because type 1 has index 0.
                 freqs.pop(_type - 1)  # same here.
             # Don't have to renormalize freqs, random.choices does this automatically.
         else:  # No unavailable product types.
-            # print("nothing unavailable")
             pass
 
-        # print(f"action nr: {self.action_counter}")
         product_type = random.choices(types, freqs, k=1)
         return product_type[0]
 
 
+# Legacy Warehouse class tester.
 # def main():
 #     test_wh = Warehouse()
     # item_id_a = 0

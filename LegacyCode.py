@@ -125,6 +125,25 @@ def CalcRTM(self):
         # irrespective of whether infeed or outfeed response time was calculated.
         self.rtm[r, f, c] += max_prep_time
 
+# TODO: finish this method, change agent location logging (for when they stand still)
+def GetActionLocation(self, agent, time):
+    """Return the specified agent's location at the specified time. Can be called anytime."""
+    if type(agent) is not str or type(time) is not float:
+        raise TypeError("Arguments 'agent' and 'time' should be of types str and float!")
+    elif agent not in self.agent_location.keys():
+        raise ValueError(f"Agent '{agent}' does not exist!")
+
+    location = 0.0
+
+    try:
+        # See if the specified time is
+        location = self.agent_location[agent][time]
+    except KeyError:
+        # There is no location for the agent at that time, so it is travelling between points.
+        # Start by looking at the latest entry in the location dictionary, work your way towards
+        # the beginning until you find a time that is smaller than the specified time.
+    return location
+
 
 def Infeed(self, selected_shelf_id=None, rfc=None):
     """

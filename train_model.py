@@ -33,14 +33,16 @@ class TrainGameModel():
             Gamma, used for calculating the discounted reward over time.
         reward_type : str, optional
             Which reward mechanism to use. The default is "makespan_full_spectrum".
-        product_frequencies : list, optional
-            The frequency with which product types pass through the warehouse.
+        dfg : list, optional
+            Which extra input matrices to give the agent. These are the AMPT (d), FPM (f) and FPMPT (g).
+            See thesis for more information on these.
 
         Returns
         -------
         None.
 
         """
+        # Calculate the number of channels the agent's input tensor will contain.
         num_states = wh.num_historical_rtms + dfg[0] * \
             (wh.num_product_types + 1) + 1 + dfg[1] + dfg[2]
 
@@ -52,7 +54,7 @@ class TrainGameModel():
             # wh.num_historical_rtms + len(wh.product_frequencies) + 4,  # number of states (?)
             num_states,
             wh.num_locs,  # Number of storage locations.
-            wh.num_locs)
+            wh.num_locs)  # Number of actions = number of locations.
 
         self.endTime = 0
         self.lr_init = lr
@@ -90,7 +92,7 @@ class TrainGameModel():
         train_episodes : int
             The number of episodes for which to train the network.
         scenario : str, optional
-            Whether the warehouse is processing infeed, outfeed or both types of orders.
+            Whether the warehouse is processing 'infeed', 'outfeed' or 'both' types of orders.
         baselines : list(str), optional
             Which benchmark policies to run in order to calculate baselines (for comparison).
 
@@ -117,6 +119,7 @@ class TrainGameModel():
         if self.reward_type not in self.all_reward_types:
             raise ValueError(f"Reward type {self.reward_type} is not a valid reward type!")
 
+        # Initialize lists for episode data collection.
         self.startTime = datetime.now()
         all_episode_times = []
         all_episode_rewards = []
@@ -126,14 +129,11 @@ class TrainGameModel():
         last_all_type_dos = []
         dims = self.wh_sim.dims
 
+        # If there are any benchmarks that should be run, do that now.
         if baselines is not None:
             for benchmark in baselines:
                 if benchmark not in self.benchmark_policies:
                     raise ValueError(f"There is no benchmark policy named {benchmark}.")
-
-            # if scenario != "infeed" and baselines != ["random"]:
-            #     raise RuntimeError(
-            #         "Can only run infeed-only simulations when using benchmarks other than random!")
 
             # Run benchmarks to establish baselines that are included in the training performance graph.
             print(f"Running the following benchmarks: {baselines}\n\n")
@@ -144,17 +144,19 @@ class TrainGameModel():
                     f"Finished. Average makespan: {round(self.baselines[bench_pol][0], 2)} seconds.")
 
         # Specify the exploration strategy here.
+        # Currently not in use.
         init_eps = 1.0
         fin_eps = 0.04
         epsilon = 1.0
         eps_trajectory = [0.1, 0.5, 1.0]
 
         for i_episode in range(train_episodes):
-            # wh_state = self.wh_sim.ResetState(random_fill_percentage=0.5)
+            # Reset the simulation state.
             wh_state = self.wh_sim.ResetState(
                 random_fill_percentage=self.wh_sim.init_fill_perc, dfg=self.dfg)
 
             # Set epsilon here.
+            # Currently not in use.
             point_in_training = i_episode / train_episodes
             if point_in_training < eps_trajectory[0]:
                 epsilon = init_eps
@@ -174,10 +176,10 @@ class TrainGameModel():
             prev_max_busy_till = 0.0
             max_busy_till = 0.0
 
+            # Start a simulation episode.
             while True:
                 # Increase the sim_time by some amount here.
                 # TODO: Create a mechanism for stochasticall (?) increasing simulation time.
-                # self.wh_sim.sim_time += 10.0
 
                 # In order to recreate the Lei Luo paper results, new orders should start when the
                 # vertical transporter becomes available.
@@ -199,19 +201,6 @@ class TrainGameModel():
                 # Generate a new order.
                 self.wh_sim.GenerateNewOrder(scenario, free_and_occ)
 
-                # if scenario == "both":  # If we're doing both infeed and outfeed.
-                #     self.wh_sim.order_system.GenerateNewOrder(
-                #         current_time=self.wh_sim.sim_time,
-                #         order_type="random",
-                #         free_and_occ=free_and_occ,
-                #         product_type=1)
-                # else:  # If we're doing only infeed or only outfeed.
-                #     self.wh_sim.order_system.GenerateNewOrder(
-                #         current_time=self.wh_sim.sim_time,
-                #         order_type=scenario,
-                #         free_and_occ=free_and_occ,
-                #         product_type=1)
-
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
                 next_order_id, next_order = self.wh_sim.GetNextOrder(free_and_occ)
@@ -229,14 +218,12 @@ class TrainGameModel():
 
                 # Prepare the state.
                 wh_state = self.wh_sim.BuildState(infeed, product_type, dfg=self.dfg)
-                # print(infeed_count)
 
                 # Select an action with the NN based on the state, order type and occupancy.
                 if infeed:
                     action = self.neural_network.select_action(
                         np.array(wh_state), free_locs, epsilon)
                     infeed_count += 1
-                    # summary(self.neural_network.policy_value_net, input_data=np.array(wh_state))
                 elif not infeed:
                     action = self.neural_network.select_action(
                         np.array(wh_state), occupied_locs, epsilon)
@@ -249,10 +236,6 @@ class TrainGameModel():
                 # Have the selected action get executed by the warehouse sim.
                 action_time, is_end = self.wh_sim.ProcessAction(infeed, product_type, action)
                 all_action.append(action)
-                # if infeed:
-                #     self.wh_sim.product_counts[next_order["product_type"]] += 1
-                # else:
-                #     self.wh_sim.product_counts[next_order["product_type"]] -= 1
 
                 # Update maximum busy time.
                 prev_max_busy_till = max_busy_till
@@ -271,7 +254,7 @@ class TrainGameModel():
                         max_busy_till + (max_busy_till - action_time)
 
                 # Finish and log the executed order.
-                finish_time = action_time  # + self.wh_sim.sim_time
+                finish_time = action_time
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
 
                 # Add and log the reward.
@@ -291,7 +274,6 @@ class TrainGameModel():
                 self.wh_sim.sim_time = max_busy_till
 
             # Adjust the learning rate.
-            # if i_episode != 0 and (i_episode * self.wh_sim.episode_length) % self.change_count == 0:
             if i_episode != 0 and i_episode % self.change_count == 0:
                 self.lr = self.lr * self.lr_decay
 
@@ -330,10 +312,9 @@ class TrainGameModel():
                       \rInfeed orders: {infeed_count}
                       \rOutfeed orders: {outfeed_count}
                       \r""")
-            # print(f"all rewards: {[round(reward, 1) for reward in all_reward]}")
 
         # Training is done here, display the time taken.
-        self.endTime = datetime.now()  # dt.strftime('%y-%m-%d %I:%M:%S %p')
+        self.endTime = datetime.now()
         t_seconds = (self.endTime - self.startTime).total_seconds()
         print(f"Time taken: {t_seconds}s. Episodes/second: {round(train_episodes / t_seconds, 2)}")
 
@@ -365,7 +346,7 @@ class TrainGameModel():
         benchmark_policy : str, optional
             Which benchmark policy to run. The default is "random".
         save_results : bool, optional
-            Whether to generate and save plots, or return an average. The default is True.
+            Whether to generate and save plots, else return an average. The default is True.
 
         Raises
         ------
@@ -375,7 +356,7 @@ class TrainGameModel():
         Returns
         -------
         float
-            The average makespan of the run benchmark policy.
+            The average makespan of the benchmark policy that was ran.
 
         """
 
@@ -409,8 +390,6 @@ class TrainGameModel():
 
             while True:
                 # Increase the sim_time by some amount here.
-                # In order to recreate the Lei Luo paper results, new orders should start when the
-                # vertical transporter becomes available.
                 self.wh_sim.sim_time = self.wh_sim.agent_busy_till['vt']
 
                 # Store the number of free and occupied locations.
@@ -419,18 +398,6 @@ class TrainGameModel():
 
                 # Generate a new order.
                 self.wh_sim.GenerateNewOrder(scenario, free_and_occ)
-
-                # # Generate a new order.
-                # if scenario == "both":  # If we're doing both infeed and outfeed.
-                #     self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
-                #                                               order_type="random",
-                #                                               free_and_occ=free_and_occ,
-                #                                               product_type=1)
-                # else:  # If we're doing only infeed or only outfeed.
-                #     self.wh_sim.order_system.GenerateNewOrder(current_time=self.wh_sim.sim_time,
-                #                                               order_type=scenario,
-                #                                               free_and_occ=free_and_occ,
-                #                                               product_type=1)
 
                 # Pick an order from one of the queues. Also, check if order is possible given
                 # warehouse occupancy (if order is infeed and warehouse is full, you can't infeed.)
@@ -486,7 +453,6 @@ class TrainGameModel():
                 self.wh_sim.order_system.FinishOrder(next_order_id, action, finish_time)
 
                 # Calculate and log the reward.
-                # reward = -action_time + self.wh_sim.sim_time
                 reward = candidate_reward
                 self.episode_reward += reward
                 all_reward.append(reward)
@@ -513,6 +479,7 @@ class TrainGameModel():
             all_access_densities.append(access_densities)
             all_most_common_types.append(most_common_types)
 
+            # Debugging info. Turned on for training, off for benchmarking.
             # Print iteration meta info.
             # print(f"Finished it. {iter_i + 1}/{n_iterations}.")
             # print(f"Cumulative order fulfillment time: {-round(self.episode_reward, 2)}\n")
@@ -551,11 +518,12 @@ class TrainGameModel():
             return [sum(all_episode_times)/len(all_episode_times), np.std(all_episode_times)]
 
     def SaveBestModel(self):
+        # TODO: Test the saving of a model.
         # Determine whether to save as a new model based on the principle of least total time consumption
         if self.all_episode_times[len(self.all_episode_times)-1] == min(self.all_episode_times):
             savePath = "./plantPolicy_" + str(self.wh_sim.XDim) + "_" + str(self.wh_sim.YDim) + "_" + str(
                 self.train_episodes) + ".model"
-            self.neural_network.save_model(savePath)  # 保存模型
+            self.neural_network.save_model(savePath)
 
     def DrawAccessDensity(self, access_densities, exp_name=None, save_fig=True):
         """Draw the access densities for shelves given infeed and outfeed order counts."""
@@ -725,6 +693,8 @@ class TrainGameModel():
         plt.xlabel("Episode number")
         plt.ylabel("Makespan (in sec.)")
         all_episode_rewards = [reward for reward in all_episode_rewards]
+
+        # Automatic y-axis scaling. Sometimes helpful, not always.
         # y_min = int(min([min(all_episode_rewards), min(self.baselines.values())]) / 1.1)
         # y_max = int(max([max(all_episode_rewards), max(self.baselines.values())]) * 1.1)
 
@@ -736,7 +706,6 @@ class TrainGameModel():
         if save_fig:
             plt.savefig("performance trajectory.svg", format="svg")
 
-        # mean_list = [np.mean(all_episode_rewards)] * len(all_episode_rewards)
         if exp_name is None:
             plt.figure()
             plt.title("Actor loss")
@@ -829,7 +798,7 @@ class TrainGameModel():
                               save_plots=True,
                               return_results=True):
         """This method should be customized by anyone using it, in order to save experiment
-        results in the right folder."""
+           results in the right folder."""
         # Navigate to the experiment folder, create the folder for this run.
         # Go up two levels to the 'Thesis' folder.
         original_dir = os.getcwd()
@@ -878,7 +847,6 @@ class TrainGameModel():
 
         # Begin writing experiment summary/metadata.
         run_time = self.endTime - self.startTime
-        # run_time = run_time.strftime('%y-%m-%d %I:%M:%S %p')
         self.startTime = self.startTime.strftime('%y-%m-%d %I:%M:%S %p')
         self.endTime = self.endTime.strftime('%y-%m-%d %I:%M:%S %p')
         with open(f"{ex_dir} summary.txt", 'w') as f:
@@ -957,6 +925,15 @@ class TrainGameModel():
             return [mean_episode_reward, stdev_episode_reward, var_episode_reward]
         else:
             return None
+
+
+"""============================================================================================="""
+"""
+    Below this line are definitions of 'main' functions used for performing the experiments
+    detailed in the thesis.
+    
+    Important: before running 
+"""
 
 
 # def main():
@@ -1359,7 +1336,7 @@ def main():
                                    0.86,
                                    "makespan_full_spectrum")
 
-            # results, _, _ = model.RunTraining(200, "both", None)
+            results, _, _ = model.RunTraining(200, "both", None)
             # model.RunBenchmark(50, "infeed", "greedy", True)
             # model.RunBenchmark(50, "infeed", "crf_policy", True)
     #         temp_results.append(results)

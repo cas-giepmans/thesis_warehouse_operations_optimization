@@ -300,10 +300,6 @@ class PolicyValueNet:
             R = r + discount_factor * R
             returns.insert(0, R)
 
-            # Normalize the reward according to the action index.
-            # returns.insert(0, R/(idx+1))
-            # returns.insert(0, R/(72-idx))
-
         returns = torch.tensor(returns)
         eps = np.finfo(np.float32).eps.item()
         # Subtract from the rewards their mean, then divide by their stdev + epsilon.
@@ -329,13 +325,6 @@ class PolicyValueNet:
         policy_losses = torch.stack(policy_losses)
         value_losses = torch.stack(value_losses)
 
-        # Normalize the losses somewhat.
-        # div = torch.max(torch.tensor([torch.max(policy_losses), 1]))
-        # policy_losses = torch.div(policy_losses, div)
-        # value_losses = torch.div(value_losses, torch.max(value_losses))
-        # policy_losses = policy_losses / max(policy_losses)
-        # value_losses = value_losses / max(value_losses)
-
         # reset gradients
         self.optimizer.zero_grad()
         self.set_learning_rate(self.optimizer, lr)
@@ -348,7 +337,7 @@ class PolicyValueNet:
         self.actor_losses.append(policy_losses.sum().detach().numpy().tolist())
         self.critic_losses.append(value_losses.sum().detach().numpy().tolist())
 
-        # perform backprop
+        # Perform backpropagation.
         loss.backward()
 
         # Perform gradient clipping to potentially avoid exploding gradient problem.
